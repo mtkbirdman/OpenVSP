@@ -9,14 +9,14 @@
         <CORX Value="0.000000000000000000e+00" ID="CMWKRRFHEVB"/>
         <CORY Value="0.000000000000000000e+00" ID="MFIWKJBBGCS"/>
         <CORZ Value="0.000000000000000000e+00" ID="TWUNOOFTUZG"/>
-        <PanX Value="-2.220425128936767578e+00" ID="MVXABRWTFKJ"/>
-        <PanY Value="-3.377130031585693359e+00" ID="NQVBEBARTOS"/>
-        <RotationX Value="5.075302519391122047e+01" ID="IJCTTUVUNZU"/>
-        <RotationY Value="-4.452924070897970665e+01" ID="ZHYEOCTPXLN"/>
-        <RotationZ Value="-4.435004386591525360e+01" ID="LJPBLXTYNDH"/>
+        <PanX Value="-2.574692249298095703e+00" ID="MVXABRWTFKJ"/>
+        <PanY Value="6.803624629974365234e-01" ID="NQVBEBARTOS"/>
+        <RotationX Value="6.017648009742690363e+01" ID="IJCTTUVUNZU"/>
+        <RotationY Value="-5.552315417816725329e+01" ID="ZHYEOCTPXLN"/>
+        <RotationZ Value="-6.397959089899253371e+01" ID="LJPBLXTYNDH"/>
         <ViewportX Value="1.910000000000000000e+03" ID="DYQEJOLHHQW"/>
         <ViewportY Value="9.590000000000000000e+02" ID="JBSJSKEHQNR"/>
-        <Zoom Value="1.787904463708400726e-02" ID="IHTJZXARCWK"/>
+        <Zoom Value="1.555642671883106232e-02" ID="IHTJZXARCWK"/>
       </AdjustView>
       <AdvLinkSettings>
         <AdvLinkDefNameContainer Value="1.000000000000000000e+00" ID="QCZMWTSWIHE"/>
@@ -177,10 +177,10 @@
       </SVGSettings>
       <Screenshot>
         <AutoCropFlag Value="0.000000000000000000e+00" ID="UNFAYOKZRQQ"/>
-        <Height Value="9.220000000000000000e+02" ID="AOADFIHWXGV"/>
+        <Height Value="9.590000000000000000e+02" ID="AOADFIHWXGV"/>
         <Ratio Value="1.000000000000000000e+00" ID="FFFCHRDWQUM"/>
         <TransparentBGFlag Value="1.000000000000000000e+00" ID="VIVNAHKWAAF"/>
-        <Width Value="9.720000000000000000e+02" ID="YMYRTKZXZRA"/>
+        <Width Value="1.920000000000000000e+03" ID="YMYRTKZXZRA"/>
       </Screenshot>
       <SetEditor>
         <CopySetsWithGeomsFlag Value="1.000000000000000000e+00" ID="LOXBLORAXPN"/>
@@ -496,7 +496,7 @@
         <Num_of_Tex>0</Num_of_Tex>
       </Textures>
       <Geom>
-        <Set_List>1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
+        <Set_List>1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
         <SubSurfaces/>
         <FeaStructures/>
       </Geom>
@@ -1924,7 +1924,7 @@
         <Num_of_Tex>0</Num_of_Tex>
       </Textures>
       <Geom>
-        <Set_List>1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
+        <Set_List>1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
         <SubSurfaces>
           <SubSurface>
             <ParmContainer>
@@ -2704,7 +2704,7 @@
         <Num_of_Tex>0</Num_of_Tex>
       </Textures>
       <Geom>
-        <Set_List>1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
+        <Set_List>1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
         <SubSurfaces>
           <SubSurface>
             <ParmContainer>
@@ -3247,7 +3247,7 @@
         <Num_of_Tex>0</Num_of_Tex>
       </Textures>
       <Geom>
-        <Set_List>1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
+        <Set_List>1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, </Set_List>
         <SubSurfaces>
           <SubSurface>
             <ParmContainer>
@@ -13446,9 +13446,9 @@
       <Name>VSPAEROSettings</Name>
       <VSPAERO>
         <ActuatorDiskFlag Value="0.000000000000000000e+00" ID="NGBYYWDXIQK"/>
-        <AlphaEnd Value="1.000000000000000000e+01" ID="NSLFBZGBGDQ"/>
-        <AlphaNpts Value="5.000000000000000000e+00" ID="XPVVYGUTYJE"/>
-        <AlphaStart Value="0.000000000000000000e+00" ID="SQEJJVMZNTC"/>
+        <AlphaEnd Value="1.200000000000000000e+01" ID="NSLFBZGBGDQ"/>
+        <AlphaNpts Value="9.000000000000000000e+00" ID="XPVVYGUTYJE"/>
+        <AlphaStart Value="-4.000000000000000000e+00" ID="SQEJJVMZNTC"/>
         <AlternateInputFormatFlag Value="0.000000000000000000e+00" ID="PYSAOMZITOK"/>
         <AnalysisMethod Value="0.000000000000000000e+00" ID="BLGSZQUZVCE"/>
         <AutoTimeNumRevs Value="5.000000000000000000e+00" ID="IXLHIPRIVVT"/>
@@ -13514,7 +13514,7 @@
         <m_ConvergenceXMaxIsManual Value="0.000000000000000000e+00" ID="PSYRJVBMVDE"/>
         <m_ConvergenceXMin Value="1.000000000000000000e+00" ID="BPIJNVFDOEB"/>
         <m_ConvergenceXMinIsManual Value="0.000000000000000000e+00" ID="BZPEQVKYDGI"/>
-        <m_ConvergenceYMax Value="1.000000000000000000e+00" ID="PVCKNOUAURT"/>
+        <m_ConvergenceYMax Value="0.000000000000000000e+00" ID="PVCKNOUAURT"/>
         <m_ConvergenceYMaxIsManual Value="0.000000000000000000e+00" ID="XAIITDLCWTP"/>
         <m_ConvergenceYMin Value="-3.000000000000000000e+00" ID="VXCUGNJRNVC"/>
         <m_ConvergenceYMinIsManual Value="0.000000000000000000e+00" ID="IVFGWSRZSGM"/>
@@ -13532,15 +13532,15 @@
         <m_LoadDistXMinIsManual Value="0.000000000000000000e+00" ID="QCJDDPBNANZ"/>
         <m_LoadDistYMax Value="2.000000000000000000e+00" ID="RXQERZOQUPM"/>
         <m_LoadDistYMaxIsManual Value="0.000000000000000000e+00" ID="RNUMWLZKRBU"/>
-        <m_LoadDistYMin Value="-9.999999999999999799e-13" ID="INYKJQFFXSO"/>
+        <m_LoadDistYMin Value="-1.000000000000000056e-01" ID="INYKJQFFXSO"/>
         <m_LoadDistYMinIsManual Value="0.000000000000000000e+00" ID="KDDNKKUUOAX"/>
-        <m_SweepXMax Value="2.000000000000000000e+00" ID="KTPKOCDTTQE"/>
+        <m_SweepXMax Value="1.000000000000000056e-01" ID="KTPKOCDTTQE"/>
         <m_SweepXMaxIsManual Value="0.000000000000000000e+00" ID="WOJTCWRPRXC"/>
         <m_SweepXMin Value="0.000000000000000000e+00" ID="UMCTGDNJORT"/>
         <m_SweepXMinIsManual Value="0.000000000000000000e+00" ID="UCCFTJVUMGQ"/>
         <m_SweepYMax Value="2.000000000000000000e+00" ID="XQCMCWRSSSG"/>
         <m_SweepYMaxIsManual Value="0.000000000000000000e+00" ID="SUKVXUXDGSI"/>
-        <m_SweepYMin Value="-5.000000000000000000e+00" ID="RUNWAMSDLFC"/>
+        <m_SweepYMin Value="0.000000000000000000e+00" ID="RUNWAMSDLFC"/>
         <m_SweepYMinIsManual Value="0.000000000000000000e+00" ID="OOJLSTSWWML"/>
         <m_UnsteadyXMax Value="1.000000000000000000e+00" ID="UQVOLDOWVVC"/>
         <m_UnsteadyXMaxIsManual Value="0.000000000000000000e+00" ID="AKZIEJWZSVK"/>
@@ -13613,7 +13613,7 @@
         <ID>OQJJBARAYX</ID>
         <Name>VTailGeom_RUDDER</Name>
         <ControlSurfaceGroup>
-          <ActiveFlag Value="1.000000000000000000e+00" ID="GRWQWDFTFBX"/>
+          <ActiveFlag Value="0.000000000000000000e+00" ID="GRWQWDFTFBX"/>
           <DeflectionAngle Value="0.000000000000000000e+00" ID="PCNNHXYACHA"/>
           <Surf_ANFQIKDKMO_0_Gain Value="1.000000000000000000e+00" ID="XAXYEKTMNTM"/>
         </ControlSurfaceGroup>
@@ -13652,31 +13652,31 @@
         <SurfIndex>1</SurfIndex>
       </Component>
       <ParmContainer>
-        <ID>UDLQEHOEEJ</ID>
+        <ID>ZJZYRBRDRC</ID>
         <Name>Fixed_Group</Name>
         <UnsteadyGroup>
-          <Ax Value="0.000000000000000000e+00" ID="BNMEUANQYQC"/>
-          <Ay Value="0.000000000000000000e+00" ID="QCKRSUXQJJD"/>
-          <Az Value="0.000000000000000000e+00" ID="OZDEDRGQATS"/>
-          <GeomPropertyType Value="0.000000000000000000e+00" ID="KYCCGVWRDUX"/>
-          <Ixx Value="0.000000000000000000e+00" ID="RUOMUMNALRF"/>
-          <Ixy Value="0.000000000000000000e+00" ID="DGJNESNMVYV"/>
-          <Ixz Value="0.000000000000000000e+00" ID="IQHRWVGAYPN"/>
-          <Iyy Value="0.000000000000000000e+00" ID="OFTJOMFENWU"/>
-          <Iyz Value="0.000000000000000000e+00" ID="NSFJGVFYJDP"/>
-          <Izz Value="0.000000000000000000e+00" ID="FIFVRFPJFKN"/>
-          <Mass Value="0.000000000000000000e+00" ID="JZDOWFKJSJW"/>
-          <Ox Value="0.000000000000000000e+00" ID="ZUCQLFEFPZD"/>
-          <Oy Value="0.000000000000000000e+00" ID="GFTKQOYAXZO"/>
-          <Oz Value="0.000000000000000000e+00" ID="OVRJOMHIQBC"/>
-          <RPM Value="0.000000000000000000e+00" ID="CCOTBSTHSUH"/>
-          <RotorDia Value="0.000000000000000000e+00" ID="RAWJPLQWCCZ"/>
-          <Rx Value="0.000000000000000000e+00" ID="TQWMBNDTDWZ"/>
-          <Ry Value="0.000000000000000000e+00" ID="RMIGMRMJNMT"/>
-          <Rz Value="0.000000000000000000e+00" ID="OWHUVMIMLFU"/>
-          <Vx Value="0.000000000000000000e+00" ID="MCONNSYXLVI"/>
-          <Vy Value="0.000000000000000000e+00" ID="VVZTKRJXSOJ"/>
-          <Vz Value="0.000000000000000000e+00" ID="TDWNJGTNDQB"/>
+          <Ax Value="0.000000000000000000e+00" ID="QVEJRAZULZZ"/>
+          <Ay Value="0.000000000000000000e+00" ID="OEWYCRJCGWW"/>
+          <Az Value="0.000000000000000000e+00" ID="KJIQNYWFMAT"/>
+          <GeomPropertyType Value="0.000000000000000000e+00" ID="PPIPULDBBBO"/>
+          <Ixx Value="0.000000000000000000e+00" ID="GNUDYGLEHOI"/>
+          <Ixy Value="0.000000000000000000e+00" ID="GMZNLXEYUSZ"/>
+          <Ixz Value="0.000000000000000000e+00" ID="VYKGHOBWWUP"/>
+          <Iyy Value="0.000000000000000000e+00" ID="DMNODCXQIVQ"/>
+          <Iyz Value="0.000000000000000000e+00" ID="WEUUNXMNEKI"/>
+          <Izz Value="0.000000000000000000e+00" ID="GYSAGCIXPFQ"/>
+          <Mass Value="0.000000000000000000e+00" ID="XHELFISOIVX"/>
+          <Ox Value="0.000000000000000000e+00" ID="YKFABBCTWDY"/>
+          <Oy Value="0.000000000000000000e+00" ID="RWRZOONQOPG"/>
+          <Oz Value="0.000000000000000000e+00" ID="OEJWDFDVZDM"/>
+          <RPM Value="0.000000000000000000e+00" ID="IHMXNIFDBNU"/>
+          <RotorDia Value="0.000000000000000000e+00" ID="YPZAQPYJZSV"/>
+          <Rx Value="0.000000000000000000e+00" ID="LWXWKBWNDFA"/>
+          <Ry Value="0.000000000000000000e+00" ID="XKBTVWEPJPK"/>
+          <Rz Value="0.000000000000000000e+00" ID="IQTJXJUOBMS"/>
+          <Vx Value="0.000000000000000000e+00" ID="EYRXUZYCMZN"/>
+          <Vy Value="0.000000000000000000e+00" ID="CXSWGUVWVMK"/>
+          <Vz Value="0.000000000000000000e+00" ID="VCKHVRDVTHY"/>
         </UnsteadyGroup>
       </ParmContainer>
     </Unsteady_Group>

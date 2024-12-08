@@ -163,6 +163,8 @@ cython_debug/
 
 VSPU Tutorial Models
 99_old
+test
+
 .vsptime
 *.cases
 *.adb
