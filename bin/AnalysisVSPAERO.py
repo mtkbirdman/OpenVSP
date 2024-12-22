@@ -4,12 +4,9 @@
 import openvsp as vsp
 
 def vsp_sweep(alpha, mach):
-    print('-> Begin TestVSPAeroSharpTrailingEdge')
-    print('')
+    print('-> Calculate alpha & mach sweep analysis\n')
 
     # //==== Analysis: VSPAero Single Point ====//
-    analysis_name = 'VSPAEROSweep'
-    print(analysis_name)
 
     # Close and open the file
     vsp.ClearVSPModel()
@@ -22,22 +19,25 @@ def vsp_sweep(alpha, mach):
     # Set defaults
     compgeom_name = 'VSPAEROComputeGeometry'
     vsp.SetAnalysisInputDefaults(compgeom_name)
-    print(compgeom_name)
 
     # List inputs, type, and current values
+    print(compgeom_name)
     vsp.PrintAnalysisInputs(compgeom_name)
+    print('')
 
     # Execute
     print('\tExecuting...')
     compgeom_resid = vsp.ExecAnalysis(compgeom_name)
-    print('COMPLETE')
+    print('\tCOMPLETE')
 
     # Get & Display Results
     vsp.PrintResults(compgeom_resid)
+    print('')
 
-    # //==== Analysis: VSPAero Single Point ====//
+    # //==== Analysis: VSPAero Sweep ====//
 
     # Set defaults
+    analysis_name = 'VSPAEROSweep'
     vsp.SetAnalysisInputDefaults(analysis_name)
 
     # Reference geometry set
@@ -60,6 +60,7 @@ def vsp_sweep(alpha, mach):
     vsp.Update()
 
     # List inputs, type, and current values
+    print(analysis_name)
     vsp.PrintAnalysisInputs(analysis_name)
     print('')
 
