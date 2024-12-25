@@ -16,7 +16,19 @@ Symmetry = NO
 FarDist = -1.000000 
 NumWakeNodes = 64 
 WakeIters = 5 
-NumberOfControlGroups = 0 
+NumberOfControlGroups = 3 
+AILERON_GROUP
+WingGeom_Surf0_AILERON,WingGeom_Surf1_AILERON
+-1, -1
+-10
+Elevator_Group
+HTailGeom_Surf0_ELEVATOR,HTailGeom_Surf1_ELEVATOR
+1, -1
+0
+Rudder_Group
+VTailGeom_Surf0_RUDDER
+1
+0
 Preconditioner = Matrix 
 Karman-Tsien Correction = N 
 Stability Type = 0 

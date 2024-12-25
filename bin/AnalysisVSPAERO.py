@@ -3,16 +3,9 @@
 
 import openvsp as vsp
 
-def vsp_sweep(alpha, mach):
-    print('-> Calculate alpha & mach sweep analysis\n')
+def vsp_sweep(vsp, alpha, mach):
 
-    # //==== Analysis: VSPAero Single Point ====//
-
-    # Close and open the file
-    vsp.ClearVSPModel()
-    vsp.Update()
-    vsp.ReadVSPFile('G103A.vsp3')  # Sets VSP3 file name
-    vsp.Update()
+    print('\n-> Calculate alpha & mach sweep analysis\n')
 
     # //==== Analysis: VSPAero Compute Geometry to Create Vortex Lattice DegenGeom File ====//
     
@@ -72,8 +65,52 @@ def vsp_sweep(alpha, mach):
     # Get & Display Results
     # vsp.PrintResults(rid)
 
-# Usage sample
-# if __name__ == '__main__':
-#     alpha = list(range(-4, 13, 2))  # -4 to 12 with step of 2
-#     mach = [0.1]
-#     vsp_sweep(alpha=alpha, mach=mach)
+def MyFindParm(cs_group_container_id, parm_name):
+
+    # Find param_id from cs_group_container_id and parm_name
+    parm_ids = vsp.FindContainerParmIDs( cs_group_container_id )
+    for parm_id in parm_ids:
+        if parm_name == vsp.GetParmName(parm_id):
+            return parm_id
+    return ''
+
+def set_control_surface(geom_name, deflection, cs_group_name, sub_id=0, gains=(1,1)):
+
+    # Set control surface group
+    group_index  = vsp.CreateVSPAEROControlSurfaceGroup()
+    group_name = 'ControlSurfaceGroup_' + str(group_index)
+    vsp.SetVSPAEROControlGroupName(cs_group_name, group_index)
+
+    # Add subsurface to control surface group
+    cs_name_vec = vsp.GetAvailableCSNameVec(group_index)
+    selcted = [1 + i for i, cs_name in enumerate(cs_name_vec) if geom_name in cs_name]
+    vsp.AddSelectedToCSGroup(selcted, group_index)
+    
+    # Set gain (deferential)
+    print('\n', cs_group_name, ':', vsp.GetActiveCSNameVec(group_index))
+    print('\t', f"{'container_id':14s}", f"{'parm_name':24s}", f"{'group_name':22s}", f"{'parm_id':14s}", f"{'value':8s}")
+    geom_id = vsp.FindGeomsWithName(geom_name)[0]
+    cs_group_container_id = vsp.FindContainer('VSPAEROSettings', 0)    
+    for i, gain in enumerate(gains):
+        parm_name = 'Surf_' + vsp.GetSubSurf(geom_id, sub_id) + '_' + str(i) + '_Gain'
+        parm_id = MyFindParm(cs_group_container_id, parm_name)
+        # parm_id = vsp.FindParm(cs_group_container_id, parm_name, group_name) # なぜか反応しない...
+        if parm_id != '':
+            vsp.SetParmVal(parm_id, gain)
+            print('\t', f'{cs_group_container_id:14s}', f'{parm_name:24s}', f'{group_name:22s}', f'{parm_id:14s}', f'{gain:8.3f}')
+        else:
+            print('\t', 'Failed to find ' + parm_name)
+
+    # Set defrection angle
+    parm_name = 'DeflectionAngle'
+    parm_id = vsp.FindParm(cs_group_container_id, parm_name, group_name)
+    vsp.SetParmVal(parm_id, deflection)
+
+    # Check if deflection angle successfully applied
+    if deflection == vsp.GetParmVal(parm_id):
+        print('\t', f'{cs_group_container_id:14s}', f'{parm_name:24s}', f'{group_name:22s}', f'{parm_id:14s}', f'{deflection:8.3f}')
+    else:
+        print('Failed to set deflection angle')
+        exit()
+
+    return geom_id, group_index
