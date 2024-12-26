@@ -78,7 +78,6 @@ def set_control_surface(geom_name, deflection, cs_group_name, sub_id=0, gains=(1
 
     # Set control surface group
     group_index  = vsp.CreateVSPAEROControlSurfaceGroup()
-    group_name = 'ControlSurfaceGroup_' + str(group_index)
     vsp.SetVSPAEROControlGroupName(cs_group_name, group_index)
 
     # Add subsurface to control surface group
@@ -90,6 +89,7 @@ def set_control_surface(geom_name, deflection, cs_group_name, sub_id=0, gains=(1
     print('\n', cs_group_name, ':', vsp.GetActiveCSNameVec(group_index))
     print('\t', f"{'container_id':14s}", f"{'parm_name':24s}", f"{'group_name':22s}", f"{'parm_id':14s}", f"{'value':8s}")
     geom_id = vsp.FindGeomsWithName(geom_name)[0]
+    group_name = 'ControlSurfaceGroup_' + str(group_index)
     cs_group_container_id = vsp.FindContainer('VSPAEROSettings', 0)    
     for i, gain in enumerate(gains):
         parm_name = 'Surf_' + vsp.GetSubSurf(geom_id, sub_id) + '_' + str(i) + '_Gain'
@@ -113,4 +113,4 @@ def set_control_surface(geom_name, deflection, cs_group_name, sub_id=0, gains=(1
         print('Failed to set deflection angle')
         exit()
 
-    return geom_id, group_index
+    return parm_id

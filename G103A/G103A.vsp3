@@ -9,14 +9,14 @@
         <CORX Value="0.000000000000000000e+00" ID="CMWKRRFHEVB"/>
         <CORY Value="0.000000000000000000e+00" ID="MFIWKJBBGCS"/>
         <CORZ Value="0.000000000000000000e+00" ID="TWUNOOFTUZG"/>
-        <PanX Value="-1.782922267913818359e+00" ID="MVXABRWTFKJ"/>
-        <PanY Value="-3.788740158081054688e+00" ID="NQVBEBARTOS"/>
-        <RotationX Value="5.225440322631757084e+01" ID="IJCTTUVUNZU"/>
-        <RotationY Value="-8.885054313886755040e+01" ID="ZHYEOCTPXLN"/>
-        <RotationZ Value="-9.252903030883712177e+01" ID="LJPBLXTYNDH"/>
+        <PanX Value="-4.699225425720214844e+00" ID="MVXABRWTFKJ"/>
+        <PanY Value="-4.034849166870117188e+00" ID="NQVBEBARTOS"/>
+        <RotationX Value="4.074894956943109037e+01" ID="IJCTTUVUNZU"/>
+        <RotationY Value="-6.093036222706705729e+01" ID="ZHYEOCTPXLN"/>
+        <RotationZ Value="-8.076482859562305805e+01" ID="LJPBLXTYNDH"/>
         <ViewportX Value="1.910000000000000000e+03" ID="DYQEJOLHHQW"/>
         <ViewportY Value="9.590000000000000000e+02" ID="JBSJSKEHQNR"/>
-        <Zoom Value="2.961791306734085083e-02" ID="IHTJZXARCWK"/>
+        <Zoom Value="3.070641076192259789e-03" ID="IHTJZXARCWK"/>
       </AdjustView>
       <AdvLinkSettings>
         <AdvLinkDefNameContainer Value="1.000000000000000000e+00" ID="QCZMWTSWIHE"/>
@@ -3284,25 +3284,25 @@
               </ParasiteDragProps>
               <SS_Control>
                 <Abs_Rel_Flag Value="1.000000000000000000e+00" ID="ZPACONETRUP"/>
-                <EndAngle Value="9.000000000000000000e+01" ID="ZYEEWGRUINN"/>
+                <EndAngle Value="9.551699728226145680e+01" ID="ZYEEWGRUINN"/>
                 <EndAngleFlag Value="0.000000000000000000e+00" ID="XHALLSFRPOD"/>
-                <EtaEnd Value="1.000000000000000000e+00" ID="TPVDNNTTIMP"/>
+                <EtaEnd Value="9.281205943986480245e-01" ID="TPVDNNTTIMP"/>
                 <EtaFlag Value="1.000000000000000000e+00" ID="OCFQEIHTSWZ"/>
-                <EtaStart Value="0.000000000000000000e+00" ID="APHBDEWZHIQ"/>
+                <EtaStart Value="9.977476690329757647e-02" ID="APHBDEWZHIQ"/>
                 <LE_Flag Value="0.000000000000000000e+00" ID="ZRQTMEMABVH"/>
-                <Length_C_End Value="7.500000000000000000e-01" ID="PHXKMKKGOOF"/>
-                <Length_C_Start Value="7.500000000000000000e-01" ID="EDJBRSTXGPV"/>
-                <Length_End Value="4.033857142857142364e-01" ID="RHNRKDBFPEV"/>
-                <Length_Start Value="5.477687641723355538e-01" ID="MUYENXEUWWY"/>
+                <Length_C_End Value="4.000000000000000222e-01" ID="PHXKMKKGOOF"/>
+                <Length_C_Start Value="4.000000000000000222e-01" ID="EDJBRSTXGPV"/>
+                <Length_End Value="3.616604219712248325e-01" ID="RHNRKDBFPEV"/>
+                <Length_Start Value="4.948006214900110833e-01" ID="MUYENXEUWWY"/>
                 <SE_Const_Flag Value="1.000000000000000000e+00" ID="KIMHFXQBGOF"/>
                 <SameAngleFlag Value="1.000000000000000000e+00" ID="MTLCBGSTHLK"/>
-                <StartAngle Value="1.658630471001190188e+02" ID="RCDMRHYKGZE"/>
+                <StartAngle Value="9.551699728226145680e+01" ID="RCDMRHYKGZE"/>
                 <StartAngleFlag Value="0.000000000000000000e+00" ID="BSSFOZKRSXC"/>
                 <Surf_Type Value="2.000000000000000000e+00" ID="TDJYPRAXAWX"/>
                 <Tess_Num Value="1.500000000000000000e+01" ID="MCTHZSLLYPY"/>
                 <Test_Type Value="0.000000000000000000e+00" ID="ZBSKXTYRWRM"/>
-                <UEnd Value="8.000000000000000444e-01" ID="ODWJFZCFQPW"/>
-                <UStart Value="2.000000000000000111e-01" ID="GEZUDENEXTU"/>
+                <UEnd Value="5.999999792580205105e-01" ID="ODWJFZCFQPW"/>
+                <UStart Value="4.000000201751553464e-01" ID="GEZUDENEXTU"/>
               </SS_Control>
               <SubSurface>
                 <CreateBeamElements Value="0.000000000000000000e+00" ID="CKGCJMLYLGL"/>

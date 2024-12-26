@@ -19,8 +19,8 @@ WakeIters = 5
 NumberOfControlGroups = 3 
 AILERON_GROUP
 WingGeom_Surf0_AILERON,WingGeom_Surf1_AILERON
--1, -1
--10
+1, 1
+10
 Elevator_Group
 HTailGeom_Surf0_ELEVATOR,HTailGeom_Surf1_ELEVATOR
 1, -1
