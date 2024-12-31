@@ -1,26 +1,28 @@
 ...Comp Geom...
 4 Num Comps
 6 Total Num Meshes
-7504 Total Num Tris
+9528 Total Num Tris
 
 Theo_Area   Wet_Area   Theo_Vol    Wet_Vol  Name
-   13.517     13.016      2.121      2.065  FuselageGeom   
-   18.580     17.736      1.141      1.101  WingGeom       
-   18.580     17.736      1.141      1.101  WingGeom       
-    2.202      2.188      0.046      0.046  HTailGeom      
-    2.202      2.188      0.046      0.046  HTailGeom      
-    3.049      2.601      0.104      0.090  VTailGeom      
+   12.515     12.099      1.973      1.926  FuselageGeom   
+   18.638     17.839      1.150      1.111  WingGeom       
+   18.638     17.839      1.150      1.111  WingGeom       
+    4.428      4.400      0.097      0.097  HTailGeom      
+    3.059      2.969      0.105      0.103  VTailGeom      
 -------------------------------------------------
-   58.130     55.466      4.598      4.450  Totals         
+   57.279     55.146      4.474      4.349  Totals         
 
 Tag_Theo_Area   Tag_Wet_Area    Tag_Name
-       13.517         13.016    FuselageGeom_S_Surf0
-       16.823         15.979    WingGeom_S_Surf0
-       16.823         15.979    WingGeom_S_Surf1
-        1.468          1.454    HTailGeom_S_Surf0
-        1.468          1.454    HTailGeom_S_Surf1
-        3.049          2.601    VTailGeom_S_Surf0
-        1.757          1.757    WingGeom_S_Surf0,AILERON
-        1.757          1.757    WingGeom_S_Surf1,AILERON
-        0.735          0.734    HTailGeom_S_Surf0,ELEVATOR
-        0.735          0.734    HTailGeom_S_Surf1,ELEVATOR
+       12.515         12.099    FuselageGeom_S_Surf0
+       16.863         16.064    WingGeom_S_Surf0
+       16.864         16.065    WingGeom_S_Surf1
+        1.466          1.453    HTailGeom_S_Surf0
+        1.466          1.453    HTailGeom_S_Surf1
+        2.056          1.966    VTailGeom_S_Surf0
+        1.775          1.775    WingGeom_S_Surf0,AILERON
+        1.775          1.775    WingGeom_S_Surf1,AILERON
+        0.748          0.747    HTailGeom_S_Surf0,ELEVATOR
+        0.748          0.747    HTailGeom_S_Surf1,ELEVATOR
+        1.004          1.004    VTailGeom_S_Surf0,RUDDER
+WARNING: 1 open meshes merged
+     Merged: HTailGeom
