@@ -161,14 +161,26 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-VSPU Tutorial Models
-99_old
-test
-
+# OpenVSP output files
 .vsptime
 *.cases
 *.adb
 *.quad.*
 *.cuts
 *.m
+*.slc
+*.lod
+*.history
+*.flt
+*.fem
+*.vspaero
+*.vspgeom
+*.vkey
+*.group.1
+
+VSPU Tutorial Models
+99_old
+test
 test.ipynb
+G103A/G103A_trimed_polar.xlsx
+tmp

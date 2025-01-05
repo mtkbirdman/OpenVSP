@@ -15,6 +15,7 @@ from .ISAspecification import *
 
 @contextmanager
 def suppress_stdout():
+
     # 標準出力を一時的に/dev/nullにリダイレクト
     with open(os.devnull, 'w') as devnull:
         old_stdout = sys.stdout
@@ -95,7 +96,6 @@ def vsp_sweep(vsp, alpha, mach, reynolds=[1e6], verbose=1):
         with suppress_stdout():
             rid = vsp.ExecAnalysis('VSPAEROSweep')
 
-
     # Get & Display Results
     # vsp.PrintResults(rid)
 
@@ -162,6 +162,7 @@ def set_control_surface(geom_name, deflection, cs_group_name, sub_id=0, gains=(1
     return parm_id
 
 def get_polar_result(result_ids):
+
     # Loop through the results associated with the given result_ids
     for result_id in vsp.GetStringResults(result_ids, 'ResultsVec'):
         # Check if the result name is 'VSPAERO_Polar'
@@ -178,12 +179,8 @@ def get_polar_result(result_ids):
             if data:
                 return pd.DataFrame(np.array(data).T, columns=columns)
     
-    # Print an error message if the polar result is not found
-    # print('Failed to get polar result')
-    
     # Return an empty DataFrame if no data is found
     return pd.DataFrame()
-
 
 def _get_trim(x, vsp, alpha, mach, reynolds, CMy_tol=5e-4):
 
@@ -214,11 +211,10 @@ def _get_trim(x, vsp, alpha, mach, reynolds, CMy_tol=5e-4):
     
     else:
         raise StopIteration(999)
-        # return None
 
 def vsp_trimed_sweep(vsp, alpha_list, Weight, altitude=0, dT=0):
 
-    g = 9.80665 # [m/s^2]
+    g = get_gravity() # [m/s^2]
     density = get_density(altitude=altitude, dT=dT) # [kg/m^3]
     Sref = vsp.GetDoubleAnalysisInput('VSPAEROSweep', 'Sref')[0] # [m^2]
     cref = vsp.GetDoubleAnalysisInput('VSPAEROSweep', 'cref')[0] # [m]
@@ -268,3 +264,44 @@ def vsp_trimed_sweep(vsp, alpha_list, Weight, altitude=0, dT=0):
     trimed_polar['Vz'] = trimed_polar['Velocity']*np.sin(trimed_polar['gamma'])
 
     return trimed_polar
+
+def make_CDo_correction(vsp, trimed_polar, Weight, CDpCL=0.0065, thickness=0.12, interference_factor=1, xTr=(0,0), altitude=0, dT=0):
+
+    # Function to calculate the frictional drag coefficient in turbulent regions
+    def Cf_turbulance(reynolds):
+        return 0.455/(np.log10(reynolds)**2.58)
+
+    # Function to calculate the frictional drag coefficient in the laminar flow regime
+    def Cf_laminar(reynolds):
+        return 1.32824 / np.sqrt(reynolds)
+    
+    g = get_gravity()
+    Sref = vsp.GetDoubleAnalysisInput('VSPAEROSweep', 'Sref')[0] # Get wing area [m^2]
+    density = get_density(altitude=altitude, dT=dT) # Get density based on altitude [kg/m^3]
+    reynolds = trimed_polar['Re_1e6'].values * 1e6 # Get Reynolds number
+
+    # Correct drag based on percentage of laminar flow area
+    CDo = 0
+    for laminar_persent in xTr:
+        reynolds_laminar = np.maximum(reynolds * laminar_persent, 1e3)  # Reynolds number in laminar flow region
+        CDo += Cf_turbulance(reynolds) - Cf_turbulance(reynolds_laminar) * laminar_persent + Cf_laminar(reynolds_laminar) * laminar_persent
+
+    # form factor
+    form_factor = 1 + 2 * thickness + 60 * (thickness ** 4)
+
+    # Corrected CD0, CDtotal, and lift-drag ratio are calculated and added to the data frame
+    trimed_polar['CDo_corr'] = CDo * form_factor * interference_factor + CDpCL * (trimed_polar['CL'].values) ** 2
+    trimed_polar['CDtot_corr'] = trimed_polar['CDo_corr'].values + trimed_polar['CDi'].values
+    trimed_polar['L_D_corr'] = trimed_polar['CL'].values / trimed_polar['CDtot_corr'].values
+
+    # Calculate angle of attack from modified lift-drag ratio
+    trimed_polar['gamma'] = np.arctan(1/trimed_polar['L_D_corr'].values)
+
+    # Calculate velocity
+    trimed_polar['Velocity'] = np.sqrt((2*Weight*g)/(density*Sref*trimed_polar['CL'].values*np.cos(trimed_polar['gamma'].values)))
+
+    # Calculates horizontal velocity (Vx) and vertical velocity (Vz) and adds them to the data frame
+    trimed_polar['Vx'] = trimed_polar['Velocity'].values*np.cos(trimed_polar['gamma'])*(3.6)  # horizontal velocity [km/h]
+    trimed_polar['Vz'] = trimed_polar['Velocity'].values*np.sin(trimed_polar['gamma'].values)  # vertical velocity [m/s]
+
+    return trimed_polar  # Returns corrected data

@@ -117,3 +117,6 @@ def velocity_to_reynolds(velocity, length, dT=0, altitude=0):
     reynolds = density * velocity * length / mu
 
     return reynolds
+
+def get_gravity():
+    return g
