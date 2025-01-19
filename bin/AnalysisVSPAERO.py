@@ -69,15 +69,17 @@ def vsp_sweep(vsp, alpha, mach, reynolds=[1e6], verbose=1):
     vsp.SetStringAnalysisInput(analysis_name, 'WingID', wid, 0)
 
     # Freestream Parameters
-    alpha_npts = len(alpha)
+    alpha_npts = [len(alpha)]
     vsp.SetDoubleAnalysisInput(analysis_name, "AlphaStart", [alpha[0]], 0)
     vsp.SetDoubleAnalysisInput(analysis_name, "AlphaEnd", [alpha[-1]], 0)
-    vsp.SetIntAnalysisInput(analysis_name, "AlphaNpts", [alpha_npts], 0)
+    vsp.SetIntAnalysisInput(analysis_name, "AlphaNpts", alpha_npts, 0)
     mach_npts = [len(mach)]
-    vsp.SetDoubleAnalysisInput(analysis_name, 'MachStart', mach, 0)
+    vsp.SetDoubleAnalysisInput(analysis_name, 'MachStart', [mach[0]], 0)
+    vsp.SetDoubleAnalysisInput(analysis_name, 'MachEnd', [mach[-1]], 0)
     vsp.SetIntAnalysisInput(analysis_name, 'MachNpts', mach_npts, 0)
     reynolds_npts = [len(reynolds)]
-    vsp.SetDoubleAnalysisInput(analysis_name, 'ReCref', reynolds, 0)
+    vsp.SetDoubleAnalysisInput(analysis_name, 'ReCref', [reynolds[0]], 0)
+    vsp.SetDoubleAnalysisInput(analysis_name, 'ReCrefEnd', [reynolds[-1]], 0)
     vsp.SetIntAnalysisInput(analysis_name, 'ReCrefNpts', reynolds_npts, 0)
     vsp.Update()
 
@@ -305,3 +307,88 @@ def make_CDo_correction(vsp, trimed_polar, Weight, CDpCL=0.0065, thickness=0.12,
     trimed_polar['Vz'] = trimed_polar['Velocity'].values*np.sin(trimed_polar['gamma'].values)  # vertical velocity [m/s]
 
     return trimed_polar  # Returns corrected data
+
+def vsp_sweep_wig(vsp, alpha, mach, reynolds, height, AnalysisMethod=0, verbose=1):
+
+    if verbose:
+        print('\n-> Calculate alpha & mach sweep analysis\n')
+
+    # //==== Analysis: VSPAero Compute Geometry to Create Vortex Lattice DegenGeom File ====//
+    
+    # Set defaults
+    compgeom_name = 'VSPAEROComputeGeometry'
+    vsp.SetAnalysisInputDefaults(compgeom_name)
+    if AnalysisMethod:
+        vsp.SetIntAnalysisInput(compgeom_name, 'AnalysisMethod', [AnalysisMethod], 0)
+
+    # List inputs, type, and current values
+    if verbose:
+        print(compgeom_name)
+        vsp.PrintAnalysisInputs(compgeom_name)
+        print('')
+
+    # Execute
+    if verbose:
+        print('\tExecuting...')
+    compgeom_resid = vsp.ExecAnalysis(compgeom_name)
+    if verbose:
+        print('\tCOMPLETE')
+
+    # Get & Display Results
+    if verbose:
+        vsp.PrintResults(compgeom_resid)
+        print('')
+
+    # //==== Analysis: VSPAero Sweep ====//
+
+    # Set defaults
+    analysis_name = 'VSPAEROSweep'
+    vsp.SetAnalysisInputDefaults(analysis_name)
+
+    # Reference geometry set
+    geom_set = [0]
+    vsp.SetIntAnalysisInput(analysis_name, 'GeomSet', geom_set, 0)
+    ref_flag = [1]
+    vsp.SetIntAnalysisInput(analysis_name, 'RefFlag', ref_flag, 0)
+    wid = vsp.FindGeomsWithName('WingGeom')
+    vsp.SetStringAnalysisInput(analysis_name, 'WingID', wid, 0)
+
+    df = pd.DataFrame()
+    for re in reynolds:
+        for ma in mach:
+            for he in height:
+                for al in alpha:
+                    # Freestream Parameters
+                    vsp.SetDoubleAnalysisInput(analysis_name, "AlphaStart", [al], 0)
+                    vsp.SetIntAnalysisInput(analysis_name, "AlphaNpts", [1], 0)
+                    vsp.SetDoubleAnalysisInput(analysis_name, 'MachStart', [ma], 0)
+                    vsp.SetIntAnalysisInput(analysis_name, 'MachNpts', [1], 0)
+                    vsp.SetDoubleAnalysisInput(analysis_name, 'ReCref', [re], 0)
+                    vsp.SetIntAnalysisInput(analysis_name, 'ReCrefNpts', [1], 0)
+                    vsp.Update()
+
+                    # Ground Effect
+                    vsp.SetIntAnalysisInput(analysis_name, 'GroundEffectToggle', [1], 0)
+                    vsp.SetDoubleAnalysisInput(analysis_name, 'GroundEffect', [he], 0)
+
+                    # List inputs, type, and current values
+                    if verbose:
+                        print(analysis_name)
+                        vsp.PrintAnalysisInputs(analysis_name)
+                        print('')
+
+                    # Execute
+                    if verbose:
+                        print('\tExecuting...')
+                        rid = vsp.ExecAnalysis(analysis_name)
+                        print('\tCOMPLETE')
+                    else:
+                        with suppress_stdout():
+                            rid = vsp.ExecAnalysis('VSPAEROSweep')
+                    
+                    tmp = get_polar_result(rid)
+                    bref = vsp.GetDoubleAnalysisInput('VSPAEROSweep', 'bref')[0] # [m]
+                    tmp['Alpha'], tmp['Height'], tmp['H_bref'] = al, he, he/bref
+                    df = pd.concat([df, tmp])
+
+    return df
