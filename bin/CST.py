@@ -68,7 +68,7 @@ class CST:
     df = pd.DataFrame(self.coord[N].T, columns=['x', 'y'])
     df.to_csv(file_name, header=True, index=False)
 
-  def fit_CST(self, file_name = 'airfoil_shape.csv', n_wl=4, n_wu=4):
+  def fit_CST(self, file_name = 'airfoil_shape.csv', n_wl=7, n_wu=7):
     data = pd.read_csv(file_name)
     self.x_old = data['x'].to_numpy()
     self.y_old = data['y'].to_numpy()
@@ -88,6 +88,9 @@ class CST:
     self.create_airfoil(wl=self.wl, wu=self.wu, dz=self.dz, Node=self.Node)
 
   def _objfunc(self, x):
+    # enforce a continuous leading-edge radius
+    x[self.n_wl] = -x[0]
+    # create CST airfoil and evaluate
     wl = [x[:self.n_wl]]
     wu = [x[self.n_wl:self.n_wl + self.n_wu]]
     self.create_airfoil(wl=wl, wu=wu, dz=[0], Node=self.Node)
@@ -168,7 +171,6 @@ class CST:
       ax.plot(self.x_old, self.y_old,label='original')
     if self.ler is not None:
       theta = np.linspace(0, 2 * np.pi, 100)
-      #中心と半径から円の座標を計算
       x = self.ler[N] + self.ler[N] * np.cos(theta)
       y = self.ler[N] * np.sin(theta)
       ax.plot(x, y,label='ler')
@@ -188,7 +190,7 @@ class CST:
 
 if __name__ == '__main__':
   airfoil = CST()
-  airfoil.fit_CST(file_name='./G103a/E603.csv')
+  airfoil.fit_CST(file_name='./build_plane/E603.csv')
   wu = airfoil.wu
   wl = airfoil.wl
 
@@ -200,9 +202,8 @@ if __name__ == '__main__':
   section_area = airfoil.get_section_area()
   airfoil.plot(N=0)
 
-  
-  print('wu ',wu)
-  print('wl ',wl)
+  print('wu = [', ', '.join([f'{val:8.5f}' for val in wu[0]]), ']')
+  print('wl = [', ', '.join([f'{val:8.5f}' for val in wl[0]]), ']')
   print(thickness)
   print(x_tmax)
   print(ler)

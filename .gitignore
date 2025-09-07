@@ -178,6 +178,7 @@ cython_debug/
 *.vkey
 *.group.1
 
+*.lnk
 VSPU Tutorial Models
 99_old
 test
