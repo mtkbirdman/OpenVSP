@@ -3,11 +3,12 @@ import os
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 # ../bin/AnalysisVSPAERO.py をモジュールとしてインポート
-sys.path.append(os.path.join('..')) # 親ディレクトリをモジュール探索パスに追加
-from bin.AnalysisVSPAERO import *
-from bin.AnalysisVSPAERO import *
+sys.path.append(os.path.join('../..')) # 親ディレクトリをモジュール探索パスに追加
+from src.AnalysisVSPAERO import *
+from src.AnalysisVSPAERO import *
 
 import openvsp as vsp
 
@@ -16,7 +17,7 @@ if __name__=='__main__':
     # Clear the current VSP model and read the new VSP file
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile('G103A.vsp3')
+    vsp.ReadVSPFile(r"../models/G103A/G103A.vsp3")
     vsp.Update()
 
     # Define the list of alpha angles, the Mach number and Reynolds number for the sweep
