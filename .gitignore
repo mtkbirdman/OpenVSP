@@ -171,18 +171,21 @@ cython_debug/
 *.slc
 *.lod
 *.history
-*.flt
 *.fem
-*.vspaero
 *.vspgeom
 *.vkey
 *.group.1
-
+*.configurations
+*.tag
+*.taglist
 *.lnk
+*.group.*
 VSPU Tutorial Models
 99_old
 test
 test.ipynb
 G103A/G103A_trimed_polar.xlsx
 tmp
-vv_gamma_cases
+
+vv_0*
+wake_iter_0*

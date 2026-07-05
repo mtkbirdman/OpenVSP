@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# pipでの配布名（import名とは別）
+# 例: pip install pyvsp
+name = "pyvsp"
+version = "0.1.0"
+requires-python = ">=3.10,<3.12"
+
+# CLI（例: pyvsp ...）
+[project.scripts]
+pyvsp = "pyvsp.cli.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pyvsp*"]
+# あなたのツリーでは一部サブディレクトリに __init__.py が無い想定に見えるため有効化
+# （もし全サブパッケージに __init__.py を置くなら省略可）
+namespaces = true

@@ -15,7 +15,8 @@ if __name__ == '__main__':
     # Close and open the file
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(r"../models/G103A/G103A.vsp3")  # Sets VSP3 file name
+    # vsp.ReadVSPFile(r"../models/G103A/G103A.vsp3")  # Sets VSP3 file name
+    vsp.ReadVSPFile(r"../models/BRGlider/BRGlider.vsp3")  # Sets VSP3 file name
     vsp.Update()
 
     alpha = list(range(-4, 13, 2))  # -4 to 12 with step of 2
