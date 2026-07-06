@@ -196,6 +196,7 @@ def calculate_linear_lateral_response_metrics_from_stab(
     delta_r: float,
     t_final: float = 5.0,
     target_delta_phi: float = math.radians(5.0),
+    taylor_tau_eval: float = 1.0,
     rho: float | None = None,
     g: float = 9.80665,
     control_map: Mapping[str, str] | None = None,
@@ -236,6 +237,9 @@ def calculate_linear_lateral_response_metrics_from_stab(
     t_final = float(t_final)
     if t_final <= 0.0:
         raise ValueError("t_final must be positive.")
+    taylor_tau_eval = float(taylor_tau_eval)
+    if taylor_tau_eval <= 0.0:
+        raise ValueError("taylor_tau_eval must be positive.")
     delta_r = float(delta_r)
     if abs(delta_r) < 1.0e-14:
         raise ValueError("delta_r must be non-zero.")
@@ -323,6 +327,107 @@ def calculate_linear_lateral_response_metrics_from_stab(
     phat_double_prime_rhat_part = float(A[1, 2] * B[2])
     phat_double_prime = float(A[1, :] @ B)
 
+    # Exact Taylor coefficients of the same 4-state linear model.
+    #
+    #   Delta phi / delta_r
+    #       = tau^2/2  * e_phi^T A B
+    #       + tau^3/6  * e_phi^T A^2 B
+    #       + tau^4/24 * e_phi^T A^3 B + ...
+    #
+    # These columns are short-time algebraic explanation terms.  They must not
+    # be evaluated at the long 6DOF/linear response t_final, because the Taylor
+    # series is a local expansion about tau = 0.
+    AB = A @ B
+    A2B = A @ AB
+    A3B = A @ A2B
+    linear_taylor_bp = float(AB[3])
+    linear_taylor_K2 = float(A2B[3])
+    linear_taylor_K3 = float(A3B[3])
+    taylor_tau = taylor_tau_eval
+    taylor_t_eval = taylor_tau * second_per_tau
+    linear_taylor_phi_per_delta_r_2nd = 0.5 * taylor_tau**2 * linear_taylor_bp
+    linear_taylor_phi_per_delta_r_3rd = (
+        linear_taylor_phi_per_delta_r_2nd
+        + taylor_tau**3 * linear_taylor_K2 / 6.0
+    )
+    linear_taylor_phi_per_delta_r_4th = (
+        linear_taylor_phi_per_delta_r_3rd
+        + taylor_tau**4 * linear_taylor_K3 / 24.0
+    )
+    linear_taylor_metric_reference_2nd = linear_taylor_phi_per_delta_r_2nd / taylor_tau
+    linear_taylor_metric_reference_3rd = linear_taylor_phi_per_delta_r_3rd / taylor_tau
+    linear_taylor_metric_reference_4th = linear_taylor_phi_per_delta_r_4th / taylor_tau
+
+    # Simplified algebraic explanation terms.
+    #
+    # Assumptions used only in these simple_* columns:
+    #   Ixz = 0
+    #   Cl_delta_r = 0
+    #   CY_phat = 0, CY_rhat = 0
+    #   Cn_phat = 0
+    #   alpha0 = 0
+    # The kinematic beta' term -rhat is retained.
+    #
+    # Under these assumptions the dominant third-order bank-angle build-up is
+    # split into two readable paths:
+    #   rudder -> side force -> beta -> dihedral roll
+    #   rudder -> yawing moment -> rhat -> yaw-rate roll
+    simple_taylor_assumptions = (
+        "Ixz=0; Cl_delta_r=0; CY_phat=0; CY_rhat=0; "
+        "Cn_phat=0; alpha0=0; retain beta_prime_kinematic_-rhat"
+    )
+    simple_bp = 0.0
+    simple_K2_sideforce_dihedral = float(mu_inertia * mu_y * Izz * Cl_beta * CY_delta_r)
+    simple_K2_yawrate_roll = float(mu_inertia**2 * Ixx * Izz * Cl_rhat * Cn_delta_r)
+    simple_K2_total = simple_K2_sideforce_dihedral + simple_K2_yawrate_roll
+
+    simple_K3_beta_feedback = float(
+        mu_inertia * mu_y**2 * Izz * Cl_beta * CY_beta * CY_delta_r
+    )
+    simple_K3_yawrate_to_beta_dihedral = float(
+        -mu_inertia**2 * Ixx * Izz * Cl_beta * Cn_delta_r
+    )
+    simple_K3_roll_damping = float(
+        mu_inertia * Izz * Cl_phat * simple_K2_total
+    )
+    simple_K3_beta_to_yawrate_roll = float(
+        mu_inertia**2 * mu_y * Ixx * Izz * Cl_rhat * Cn_beta * CY_delta_r
+    )
+    simple_K3_yaw_damping = float(
+        mu_inertia**3 * Ixx**2 * Izz * Cl_rhat * Cn_rhat * Cn_delta_r
+    )
+
+    # Minimal yaw-rate-roll / yaw-rate-to-beta-dihedral explanation terms.
+    # These columns deliberately do not use an evaluation time such as tau_eff.
+    # They are pure Taylor coefficients of the reduced path model:
+    #   phi/delta_r = K2*tau**3/6 + K3*tau**4/24 + O(tau**5)
+    simple_K2_plus_K3_yawrate_roll_beta_dihedral = float(
+        simple_K2_yawrate_roll + simple_K3_yawrate_to_beta_dihedral
+    )
+    simple_roll_damping_rate = float(mu_inertia * Izz * Cl_phat)
+    simple_yaw_damping_rate = float(mu_inertia * Ixx * Cn_rhat)
+    simple_K3_roll_yaw_damping_correction = float(
+        simple_K2_yawrate_roll * (simple_roll_damping_rate + simple_yaw_damping_rate)
+    )
+    simple_K3_damped_effective = float(
+        simple_K3_yawrate_to_beta_dihedral + simple_K3_roll_yaw_damping_correction
+    )
+
+    simple_K3_total = (
+        simple_K3_beta_feedback
+        + simple_K3_yawrate_to_beta_dihedral
+        + simple_K3_roll_damping
+        + simple_K3_beta_to_yawrate_roll
+        + simple_K3_yaw_damping
+    )
+    simple_taylor_phi_per_delta_r_3rd = taylor_tau**3 * simple_K2_total / 6.0
+    simple_taylor_phi_per_delta_r_4th = (
+        simple_taylor_phi_per_delta_r_3rd
+        + taylor_tau**4 * simple_K3_total / 24.0
+    )
+    simple_taylor_metric_reference_3rd = simple_taylor_phi_per_delta_r_3rd / taylor_tau
+    simple_taylor_metric_reference_4th = simple_taylor_phi_per_delta_r_4th / taylor_tau
+
     def rhs(tau: float, state: np.ndarray) -> np.ndarray:
         return A @ state + B * delta_r
 
@@ -402,6 +507,39 @@ def calculate_linear_lateral_response_metrics_from_stab(
         "linear_roll_response_reference_phi_rate_per_delta_r_to_t_final": reference_phi_rate / delta_r,
         "linear_roll_response_metric_reference": reference_metric,
         "linear_roll_response_fraction_of_target": phi_final / target_delta_phi,
+        "linear_taylor_source": "exact_taylor_terms_from_full_linear_A_B_at_taylor_tau_eval",
+        "linear_taylor_tau_eval": taylor_tau,
+        "linear_taylor_t_eval": taylor_t_eval,
+        "linear_taylor_bp": linear_taylor_bp,
+        "linear_taylor_K2": linear_taylor_K2,
+        "linear_taylor_K3": linear_taylor_K3,
+        "linear_taylor_phi_per_delta_r_2nd": linear_taylor_phi_per_delta_r_2nd,
+        "linear_taylor_phi_per_delta_r_3rd": linear_taylor_phi_per_delta_r_3rd,
+        "linear_taylor_phi_per_delta_r_4th": linear_taylor_phi_per_delta_r_4th,
+        "linear_taylor_metric_reference_2nd": linear_taylor_metric_reference_2nd,
+        "linear_taylor_metric_reference_3rd": linear_taylor_metric_reference_3rd,
+        "linear_taylor_metric_reference_4th": linear_taylor_metric_reference_4th,
+        "simple_taylor_source": "simplified_lateral_response_paths_at_taylor_tau_eval",
+        "simple_taylor_tau_eval": taylor_tau,
+        "simple_taylor_t_eval": taylor_t_eval,
+        "simple_taylor_assumptions": simple_taylor_assumptions,
+        "simple_bp": simple_bp,
+        "simple_K2_sideforce_dihedral": simple_K2_sideforce_dihedral,
+        "simple_K2_yawrate_roll": simple_K2_yawrate_roll,
+        "simple_K2_total": simple_K2_total,
+        "simple_K3_beta_feedback": simple_K3_beta_feedback,
+        "simple_K3_yawrate_to_beta_dihedral": simple_K3_yawrate_to_beta_dihedral,
+        "simple_K2_plus_K3_yawrate_roll_beta_dihedral": simple_K2_plus_K3_yawrate_roll_beta_dihedral,
+        "simple_K3_roll_yaw_damping_correction": simple_K3_roll_yaw_damping_correction,
+        "simple_K3_damped_effective": simple_K3_damped_effective,
+        "simple_K3_roll_damping": simple_K3_roll_damping,
+        "simple_K3_beta_to_yawrate_roll": simple_K3_beta_to_yawrate_roll,
+        "simple_K3_yaw_damping": simple_K3_yaw_damping,
+        "simple_K3_total": simple_K3_total,
+        "simple_taylor_phi_per_delta_r_3rd": simple_taylor_phi_per_delta_r_3rd,
+        "simple_taylor_phi_per_delta_r_4th": simple_taylor_phi_per_delta_r_4th,
+        "simple_taylor_metric_reference_3rd": simple_taylor_metric_reference_3rd,
+        "simple_taylor_metric_reference_4th": simple_taylor_metric_reference_4th,
         "initial_response_source": "small_disturbance_lateral_taylor_terms_from_linear_model",
         "initial_tau_per_second": tau_per_second,
         "initial_second_per_tau": second_per_tau,
@@ -832,6 +970,330 @@ def plot_6dof_history(history: pd.DataFrame, *, plot_path: str | Path | None = N
     else:
         plt.close(fig)
     return fig
+
+def simulate_reduced_lateral_response_from_stab(
+    stab_path: str | Path,
+    *,
+    Ixx: float,
+    Izz: float,
+    delta_r: float,
+    time: Sequence[float],
+    Ixz: float = 0.0,
+    rho: float | None = None,
+    control_map: Mapping[str, str] | None = None,
+    roll_moment_coef: str = "CMl",
+    yaw_moment_coef: str = "CMn",
+    include_roll_damping: bool = False,
+    include_yaw_damping: bool = False,
+    rtol: float = 1.0e-9,
+    atol: float = 1.0e-11,
+) -> pd.DataFrame:
+    """Return the reduced lateral response on a given time grid.
+
+    The base reduced model is
+
+        beta' = -rhat
+        phat' = mu_I Izz Cl_beta beta + mu_I Izz Cl_r rhat
+        rhat' = mu_I Ixx Cn_delta_r delta_r
+        phi' = phat
+
+    with tau = 2 V / Bref * t.  Optional roll and yaw damping add
+
+        + mu_I Izz Cl_p phat
+        + mu_I Ixx Cn_r rhat
+
+    respectively.  Side force, direct rudder roll, gravity, and Ixz coupling
+    are intentionally excluded so this remains a readable explanatory model
+    against the 6DOF history, not the main linear lateral model.
+    """
+    stab = read_vspaero_stab(stab_path)
+    control_columns = resolve_control_columns_from_stab(stab, control_map)
+    rudder_column = control_columns.get("delta_r")
+    if rudder_column is None:
+        raise KeyError("Could not resolve rudder control column. Pass control_map={'delta_r': 'ConGrp_N'} explicitly.")
+
+    rho_used = float(stab.rho0 if rho is None else rho)
+    if not math.isfinite(rho_used) or rho_used <= 0.0:
+        raise ValueError("rho must be positive, or the .stab file must contain a positive Rho value.")
+
+    Ixx = float(Ixx)
+    Izz = float(Izz)
+    Ixz = float(Ixz)
+    inertia_det = Ixx * Izz - Ixz * Ixz
+    if inertia_det <= 0.0:
+        raise ValueError("Ixx * Izz - Ixz**2 must be positive.")
+
+    time_values = np.asarray(time, dtype=float)
+    if time_values.ndim != 1 or len(time_values) < 2:
+        raise ValueError("time must be a one-dimensional sequence with at least two samples.")
+    if np.any(~np.isfinite(time_values)) or np.any(np.diff(time_values) <= 0.0):
+        raise ValueError("time must contain finite, strictly increasing values.")
+
+    V = float(stab.V0)
+    Bref = float(stab.Bref)
+    Sref = float(stab.Sref)
+    if V <= 0.0 or Bref <= 0.0:
+        raise ValueError("The .stab file must contain positive Vinf and Bref values.")
+
+    qbar = 0.5 * rho_used * V * V
+    tau_per_second = 2.0 * V / Bref
+    mu_inertia = qbar * Sref * Bref**3 / (4.0 * V * V * inertia_det)
+
+    Cl_beta = _solver_axis_derivative_value(stab, roll_moment_coef, "Beta")
+    Cl_phat = _solver_axis_derivative_value(stab, roll_moment_coef, "p")
+    Cl_rhat = _solver_axis_derivative_value(stab, roll_moment_coef, "r")
+    Cn_rhat = _solver_axis_derivative_value(stab, yaw_moment_coef, "r")
+    Cn_delta_r = _solver_axis_derivative_value(stab, yaw_moment_coef, rudder_column)
+
+    tau = tau_per_second * (time_values - time_values[0])
+    delta_r = float(delta_r)
+    rate_scale = 2.0 * V / Bref
+
+    roll_damping = mu_inertia * Izz * Cl_phat if include_roll_damping else 0.0
+    yaw_damping = mu_inertia * Ixx * Cn_rhat if include_yaw_damping else 0.0
+    A = np.array(
+        [
+            [0.0, 0.0, -1.0, 0.0],
+            [mu_inertia * Izz * Cl_beta, roll_damping, mu_inertia * Izz * Cl_rhat, 0.0],
+            [0.0, 0.0, yaw_damping, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ],
+        dtype=float,
+    )
+    B = np.array(
+        [
+            0.0,
+            0.0,
+            mu_inertia * Ixx * Cn_delta_r,
+            0.0,
+        ],
+        dtype=float,
+    )
+
+    if not include_roll_damping and not include_yaw_damping:
+        # Keep the default minimal model algebraic and exactly identical to the
+        # K2/K3 explanatory formula.  The solve_ivp path below is used only when
+        # damping terms are requested.
+        a = mu_inertia * Izz * Cl_beta
+        b = mu_inertia * Izz * Cl_rhat
+        c = mu_inertia * Ixx * Cn_delta_r
+        rhat = c * delta_r * tau
+        beta = -0.5 * c * delta_r * tau**2
+        phat = c * delta_r * (0.5 * b * tau**2 - (a / 6.0) * tau**3)
+        phi = c * delta_r * ((b / 6.0) * tau**3 - (a / 24.0) * tau**4)
+    else:
+        def rhs(tau_value: float, state: np.ndarray) -> np.ndarray:
+            return A @ state + B * delta_r
+
+        solution = solve_ivp(
+            rhs,
+            (float(tau[0]), float(tau[-1])),
+            np.zeros(4, dtype=float),
+            t_eval=tau,
+            rtol=rtol,
+            atol=atol,
+        )
+        if not solution.success:
+            raise RuntimeError(solution.message)
+        beta, phat, rhat, phi = solution.y
+
+    history = pd.DataFrame(
+        {
+            "time": time_values,
+            "tau": tau,
+            "beta": beta,
+            "phat": phat,
+            "rhat": rhat,
+            "phi": phi,
+            "p": rate_scale * phat,
+            "r": rate_scale * rhat,
+        }
+    )
+    history.attrs.update(
+        {
+            "stab_path": str(stab_path),
+            "rho": rho_used,
+            "V": V,
+            "Sref": Sref,
+            "Bref": Bref,
+            "Ixx": Ixx,
+            "Izz": Izz,
+            "Ixz": Ixz,
+            "inertia_det": inertia_det,
+            "mu_inertia": mu_inertia,
+            "tau_per_second": tau_per_second,
+            "delta_r": delta_r,
+            "rudder_column": rudder_column,
+            "Cl_beta": float(Cl_beta),
+            "Cl_phat": float(Cl_phat),
+            "Cl_rhat": float(Cl_rhat),
+            "Cn_rhat": float(Cn_rhat),
+            "Cn_delta_r": float(Cn_delta_r),
+            "include_roll_damping": bool(include_roll_damping),
+            "include_yaw_damping": bool(include_yaw_damping),
+            "roll_damping": float(roll_damping),
+            "yaw_damping": float(yaw_damping),
+            "A_reduced": A.tolist(),
+            "B_reduced": B.tolist(),
+            "model": "reduced_beta_phat_rhat_phi",
+        }
+    )
+    return history
+
+
+def plot_vv_gamma_row_6dof_vs_reduced_response(
+    metrics: pd.DataFrame | str | Path,
+    row_index: int,
+    *,
+    mass: float,
+    inertia: Mapping[str, float],
+    rho: float | None = None,
+    control_map: Mapping[str, str] | None = None,
+    history_path_column: str = "sixdof_history_csv_path",
+    recompute_6dof_if_missing: bool = True,
+    plot_path: str | Path | None = None,
+    show: bool = False,
+    degrees: bool = True,
+    max_step: float | None = 0.01,
+    rtol: float = 1.0e-8,
+    atol: float = 1.0e-10,
+    include_roll_damping: bool = False,
+    include_yaw_damping: bool = False,
+):
+    """Plot one vv_gamma_metrics row: 6DOF history versus reduced response.
+
+    The selected row supplies the .stab path, rudder step, target-delta-phi
+    settings, and optionally an existing sixdof_history_csv_path.  The reduced
+    response is evaluated on the same time grid as the 6DOF history, then beta,
+    p, r, and phi are plotted in a four-row shared-x figure.  Optional roll
+    damping and yaw damping affect only the reduced model.  Each y-axis range
+    is taken from the 6DOF history so the simplified response is judged against
+    the nonlinear response scale.
+    """
+    table = metrics.copy() if isinstance(metrics, pd.DataFrame) else pd.read_csv(metrics)
+    row = table.iloc[int(row_index)]
+
+    stab_path = Path(str(row["stab_path"]))
+    delta_r = float(row.get("sixdof_delta_r", row.get("linear_delta_r", math.radians(5.0))))
+    t_final = float(row.get("sixdof_t_final", row.get("linear_t_final_requested", 10.0)))
+    target_delta_phi = float(row.get("sixdof_target_delta_phi", row.get("linear_target_delta_phi", math.radians(5.0))))
+    stop_at_target = bool(row.get("sixdof_stop_at_target_delta_phi", False))
+
+    Ixx = float(inertia["Ixx"])
+    Izz = float(inertia["Izz"])
+    Ixz = float(inertia.get("Ixz", 0.0))
+
+    history_path = None
+    if history_path_column in row.index and not pd.isna(row[history_path_column]):
+        candidate = Path(str(row[history_path_column]))
+        if candidate.exists():
+            history_path = candidate
+
+    if history_path is not None:
+        sixdof = pd.read_csv(history_path)
+    else:
+        if not recompute_6dof_if_missing:
+            raise FileNotFoundError(
+                f"No existing 6DOF history was found in column {history_path_column!r}. "
+                "Set recompute_6dof_if_missing=True or write histories during postprocess."
+            )
+        if "Iyy" not in inertia:
+            raise KeyError("inertia must contain Iyy when recomputing the 6DOF history.")
+        sixdof = simulate_6dof_rudder_step_from_stab(
+            stab_path,
+            mass=float(mass),
+            Ixx=Ixx,
+            Iyy=float(inertia["Iyy"]),
+            Izz=Izz,
+            Ixz=Ixz,
+            delta_r=delta_r,
+            t_final=t_final,
+            control_map=control_map,
+            theta_hold=True,
+            theta_hold_kp=0.3,
+            theta_hold_kq=0.8,
+            rho=rho,
+            max_step=max_step,
+            rtol=rtol,
+            atol=atol,
+            stop_at_target_delta_phi=stop_at_target,
+            target_delta_phi=target_delta_phi,
+        )
+
+    reduced = simulate_reduced_lateral_response_from_stab(
+        stab_path,
+        Ixx=Ixx,
+        Izz=Izz,
+        Ixz=Ixz,
+        delta_r=delta_r,
+        time=sixdof["time"].to_numpy(dtype=float),
+        rho=rho,
+        control_map=control_map,
+        include_roll_damping=include_roll_damping,
+        include_yaw_damping=include_yaw_damping,
+        rtol=rtol,
+        atol=atol,
+    )
+
+    import matplotlib.pyplot as plt
+
+    angle_factor = 180.0 / math.pi if degrees else 1.0
+    angle_unit = "deg" if degrees else "rad"
+    plot_specs = [
+        ("beta", angle_factor, rf"$\beta$ [{angle_unit}]"),
+        ("p", 1.0, r"$p$ [rad/s]"),
+        ("r", 1.0, r"$r$ [rad/s]"),
+        ("phi", angle_factor, rf"$\phi$ [{angle_unit}]"),
+    ]
+
+    fig, axes = plt.subplots(4, 1, sharex=True, figsize=(10, 9))
+    for ax, (column, factor, ylabel) in zip(axes, plot_specs):
+        y_6dof = sixdof[column].to_numpy(dtype=float) * factor
+        y_reduced = reduced[column].to_numpy(dtype=float) * factor
+        ax.plot(sixdof["time"], y_6dof, label="6DOF")
+        reduced_label = "reduced"
+        if include_roll_damping or include_yaw_damping:
+            enabled = []
+            if include_roll_damping:
+                enabled.append("roll damping")
+            if include_yaw_damping:
+                enabled.append("yaw damping")
+            reduced_label += " (" + ", ".join(enabled) + ")"
+        ax.plot(reduced["time"], y_reduced, linestyle="--", label=reduced_label)
+        ymin = float(np.nanmin(y_6dof))
+        ymax = float(np.nanmax(y_6dof))
+        if math.isclose(ymin, ymax, rel_tol=0.0, abs_tol=1.0e-12):
+            margin = max(abs(ymin), 1.0) * 0.05
+        else:
+            margin = 0.05 * (ymax - ymin)
+        ax.set_ylim(ymin - margin, ymax + margin)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.35)
+        ax.legend(loc="best")
+
+    case_name = row.get("case", row_index)
+    axes[-1].set_xlabel("t [s]")
+    fig.suptitle(f"6DOF vs reduced lateral response: {case_name}")
+    fig.tight_layout()
+    if plot_path is not None:
+        plot_path = Path(plot_path)
+        plot_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(plot_path, dpi=150)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return {
+        "fig": fig,
+        "axes": axes,
+        "sixdof_history": sixdof,
+        "reduced_history": reduced,
+        "row": row,
+        "history_path": None if history_path is None else str(history_path),
+        "include_roll_damping": bool(include_roll_damping),
+        "include_yaw_damping": bool(include_yaw_damping),
+    }
 
 def estimate_roll_rate_gain_from_history(history: pd.DataFrame, delta_r: float, *, evaluation_window: tuple[float, float] | None = None) -> dict[str, float]:
     if abs(delta_r) < 1.0e-14:
