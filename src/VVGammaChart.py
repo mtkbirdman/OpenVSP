@@ -12,8 +12,8 @@ The main workflow is intentionally split into two readable stages:
 
     3. postprocess_vv_gamma_cases:
        tip_deflection + semispan -> analytic elliptical-planform weighted
-       Gamma_eff, then .stab parsing -> stability metrics -> quasi-steady
-       rudder roll gain -> linear finite-time lateral response -> 6DOF signed-delta-phi roll-response metric ->
+       Gamma_eff, then .stab parsing -> stability metrics -> linear finite-time lateral response
+       -> 6DOF signed-delta-phi roll-response metric ->
        optional level/gliding turn-trim metrics
 
 Angles are radians in the numerical/flight-mechanics functions and degrees only
@@ -266,7 +266,6 @@ def read_reference_wing_summary(
     vsp.ReadVSPFile(os.fspath(vsp3_path))
     vsp.Update()
     return _reference_wing_summary_from_loaded(vsp, wing_name=wing_name, surf_index=surf_index)
-
 
 def calculate_gamma_eff_from_tip_deflection(
     tip_deflection: float,
@@ -652,6 +651,16 @@ def calculate_stab_basic_metrics(
     cs_delta_r = _stab_derivative(stab, "CS", rudder_column) if rudder_column else math.nan
     cy_delta_r = rudder_gain.solver_axis_derivative_value_from_stab(stab, "CY", rudder_column) if rudder_column else math.nan
 
+    spiral_margin = cl_beta * cn_r - cn_beta * cl_r
+    simple_turn_trim_denominator = cn_delta_r * cl_r
+    simple_turn_trim_delta_r_per_beta = math.nan
+    if (
+        math.isfinite(spiral_margin)
+        and math.isfinite(simple_turn_trim_denominator)
+        and abs(simple_turn_trim_denominator) >= 1.0e-14
+    ):
+        simple_turn_trim_delta_r_per_beta = spiral_margin / simple_turn_trim_denominator
+
     metrics: dict[str, Any] = {
         "stab_path": os.fspath(stab_path),
         "Vv": np.nan if vv is None else float(vv),
@@ -673,7 +682,8 @@ def calculate_stab_basic_metrics(
         "Cn_delta_r": cn_delta_r,
         "CS_delta_r": cs_delta_r,
         "CY_delta_r": cy_delta_r,
-        "spiral_margin": cl_beta * cn_r - cn_beta * cl_r,
+        "spiral_margin": spiral_margin,
+        "simple_turn_trim_delta_r_per_beta": simple_turn_trim_delta_r_per_beta,
         "control_column_delta_a": aileron_column,
         "control_column_delta_e": elevator_column,
         "control_column_delta_r": rudder_column,
@@ -743,9 +753,20 @@ def _flatten_turn_trim(trim: Mapping[str, Any]) -> dict[str, Any]:
     if "height_residual" in trim:
         result["turn_trim_height_residual"] = trim["height_residual"]
     solution = trim.get("solution", {}) or {}
-    result["turn_trim_beta"] = solution.get("beta", np.nan)
-    result["turn_trim_delta_r"] = solution.get("delta_r", np.nan)
+    turn_trim_beta = solution.get("beta", np.nan)
+    turn_trim_delta_r = solution.get("delta_r", np.nan)
+    result["turn_trim_beta"] = turn_trim_beta
+    result["turn_trim_delta_r"] = turn_trim_delta_r
     result["turn_trim_Omega"] = solution.get("Omega", np.nan)
+
+    result["turn_trim_delta_r_per_beta"] = np.nan
+    try:
+        beta_value = float(turn_trim_beta)
+        delta_r_value = float(turn_trim_delta_r)
+        if math.isfinite(beta_value) and math.isfinite(delta_r_value) and abs(beta_value) >= 1.0e-14:
+            result["turn_trim_delta_r_per_beta"] = delta_r_value / beta_value
+    except (TypeError, ValueError):
+        pass
     return result
 
 def calculate_turn_trim_metrics_from_stab(
@@ -1070,7 +1091,6 @@ def postprocess_vv_gamma_cases(
     inertia: Mapping[str, float] | None = None,
     rho: float | None = None,
     g: float = 9.80665,
-    calculate_quasi_steady_gain: bool = True,
     calculate_linear_lateral_response: bool = True,
     run_6dof: bool = True,
     delta_r: float = math.radians(5.0),
@@ -1145,7 +1165,7 @@ def postprocess_vv_gamma_cases(
     if run_6dof and "Iyy" not in inertia:
         raise KeyError("inertia is missing required key: Iyy")
 
-    rudder_gain = _import_roll_rudder_gain() if (calculate_quasi_steady_gain or calculate_linear_lateral_response or run_6dof) else None
+    rudder_gain = _import_roll_rudder_gain() if (calculate_linear_lateral_response or run_6dof) else None
     Ixx = float(inertia["Ixx"]) if inertia is not None else math.nan
     Iyy = float(inertia.get("Iyy", math.nan)) if inertia is not None else math.nan
     Izz = float(inertia["Izz"]) if inertia is not None else math.nan
@@ -1170,6 +1190,7 @@ def postprocess_vv_gamma_cases(
         output_row["Gamma_eff_weight_sum"] = np.nan
         output_row["Gamma_eff_semispan"] = gamma_semispan_value
         output_row["Gamma_eff_n_span"] = int(gamma_n_span)
+        output_row["simple_turn_trim_delta_r_per_beta"] = np.nan
         if calculate_linear_lateral_response:
             output_row.update({
                 "linear_response_source": "not_evaluated",
@@ -1196,45 +1217,31 @@ def postprocess_vv_gamma_cases(
                 "linear_dt_reach": np.nan,
                 "linear_roll_response_phi_rate": np.nan,
                 "linear_roll_response_phi_rate_per_delta_r": np.nan,
-                "linear_roll_response_metric": np.nan,
+                "linear_finite_time_roll_metric": np.nan,
                 "linear_roll_response_error": "not_evaluated",
                 "linear_roll_response_reference_phi_rate_to_t_final": np.nan,
                 "linear_roll_response_reference_phi_rate_per_delta_r_to_t_final": np.nan,
                 "linear_roll_response_metric_reference": np.nan,
                 "linear_roll_response_fraction_of_target": np.nan,
                 "linear_taylor_source": "not_evaluated",
-                "linear_taylor_tau_eval": float(taylor_tau_eval),
-                "linear_taylor_t_eval": np.nan,
-                "linear_taylor_bp": np.nan,
+                "linear_taylor_K1": np.nan,
                 "linear_taylor_K2": np.nan,
                 "linear_taylor_K3": np.nan,
-                "linear_taylor_phi_per_delta_r_2nd": np.nan,
-                "linear_taylor_phi_per_delta_r_3rd": np.nan,
-                "linear_taylor_phi_per_delta_r_4th": np.nan,
-                "linear_taylor_metric_reference_2nd": np.nan,
-                "linear_taylor_metric_reference_3rd": np.nan,
-                "linear_taylor_metric_reference_4th": np.nan,
                 "simple_taylor_source": "not_evaluated",
-                "simple_taylor_tau_eval": float(taylor_tau_eval),
-                "simple_taylor_t_eval": np.nan,
                 "simple_taylor_assumptions": "",
-                "simple_bp": np.nan,
+                "simple_K1_direct_roll": np.nan,
                 "simple_K2_sideforce_dihedral": np.nan,
                 "simple_K2_yawrate_roll": np.nan,
                 "simple_K2_total": np.nan,
-                "simple_K3_beta_feedback": np.nan,
                 "simple_K3_yawrate_to_beta_dihedral": np.nan,
                 "simple_K2_plus_K3_yawrate_roll_beta_dihedral": np.nan,
-                "simple_K3_roll_yaw_damping_correction": np.nan,
-                "simple_K3_damped_effective": np.nan,
-                "simple_K3_roll_damping": np.nan,
-                "simple_K3_beta_to_yawrate_roll": np.nan,
-                "simple_K3_yaw_damping": np.nan,
-                "simple_K3_total": np.nan,
-                "simple_taylor_phi_per_delta_r_3rd": np.nan,
-                "simple_taylor_phi_per_delta_r_4th": np.nan,
-                "simple_taylor_metric_reference_3rd": np.nan,
-                "simple_taylor_metric_reference_4th": np.nan,
+                "simple_roll_damping_rate": np.nan,
+                "simple_yaw_damping_rate": np.nan,
+                "simple_K3_yawrate_roll_damping_correction": np.nan,
+                "simple_K3_yawrate_beta_dihedral_damped": np.nan,
+                "simple_K3_reduced": np.nan,
+                "simple_turn_rate_full": np.nan,
+                "simple_turn_rate": np.nan,
                 "initial_response_source": "not_evaluated",
                 "initial_tau_per_second": np.nan,
                 "initial_second_per_tau": np.nan,
@@ -1285,7 +1292,7 @@ def postprocess_vv_gamma_cases(
                 "sixdof_metric_Bref": np.nan,
                 "sixdof_roll_response_phi_rate": np.nan,
                 "sixdof_roll_response_phi_rate_per_delta_r": np.nan,
-                "sixdof_roll_response_metric": np.nan,
+                "sixdof_finite_time_roll_metric": np.nan,
                 "sixdof_roll_response_error": "not_evaluated",
                 "sixdof_roll_response_reference_phi_rate_to_t_final": np.nan,
                 "sixdof_roll_response_reference_phi_rate_per_delta_r_to_t_final": np.nan,
@@ -1300,6 +1307,7 @@ def postprocess_vv_gamma_cases(
                 "turn_trim_passed": False,
                 "turn_trim_beta": np.nan,
                 "turn_trim_delta_r": np.nan,
+                "turn_trim_delta_r_per_beta": np.nan,
                 "turn_trim_Omega": np.nan,
             })
 
@@ -1333,15 +1341,6 @@ def postprocess_vv_gamma_cases(
                     max_step=max_step, rtol=rtol, atol=atol,
                 )
                 output_row.update(linear)
-            if calculate_quasi_steady_gain:
-                quasi = rudder_gain.calculate_quasi_steady_rudder_roll_gain_from_stab(stab_path, control_map=control_map)
-                output_row.update({
-                    "quasi_matrix_det": quasi.get("matrix_det", math.nan),
-                    "quasi_beta_per_delta_r": quasi.get("beta_per_delta_r", math.nan),
-                    "quasi_p_per_delta_r": quasi.get("p_per_delta_r", math.nan),
-                    "quasi_phat_per_delta_r": quasi.get("phat_per_delta_r", math.nan),
-                    "quasi_rhat_per_delta_r": quasi.get("rhat_per_delta_r", math.nan),
-                })
             if run_6dof:
                 history = rudder_gain.simulate_6dof_rudder_step_from_stab(
                     stab_path, mass=float(mass), Ixx=Ixx, Iyy=Iyy, Izz=Izz, Ixz=Ixz,
@@ -1384,7 +1383,12 @@ def postprocess_vv_gamma_cases(
                         g=float(g), verbose=verbose,
                     ))
                 except Exception as exc:
-                    output_row.update({"turn_trim_mode": turn_trim_mode, "turn_trim_passed": False, "turn_trim_error": repr(exc)})
+                    output_row.update({
+                        "turn_trim_mode": turn_trim_mode,
+                        "turn_trim_passed": False,
+                        "turn_trim_delta_r_per_beta": np.nan,
+                        "turn_trim_error": repr(exc),
+                    })
             output_row["postprocess_passed"] = True
         except Exception as exc:
             output_row["postprocess_error"] = repr(exc)
@@ -1421,44 +1425,28 @@ VV_GAMMA_LATEX_LABELS = {
     "CS_delta_r": r"$C_{S\delta_r}$",
     "CY_delta_r": r"$C_{Y\delta_r}$",
     "spiral_margin": r"$C_{l\beta}C_{n\hat{r}}-C_{n\beta}C_{l\hat{r}}$",
-    "quasi_beta_per_delta_r": r"$\beta/\delta_r$",
-    "quasi_p_per_delta_r": r"$p/\delta_r$",
-    "quasi_phat_per_delta_r": r"$\hat{p}/\delta_r$",
-    "quasi_rhat_per_delta_r": r"$\hat{r}/\delta_r$",
-    "sixdof_roll_response_metric": r"$\frac{b}{2V}\frac{\Delta\phi/\Delta t}{\delta_r}$",
+    "simple_turn_trim_delta_r_per_beta": r"$\left(\delta_r/\beta\right)=\frac{C_{l\beta}C_{n\hat{r}}-C_{n\beta}C_{l\hat{r}}}{C_{n\delta_r}C_{l\hat{r}}}$",
+    "sixdof_finite_time_roll_metric": r"$\frac{b}{2V}\frac{\Delta\phi/\Delta t}{\delta_r}$",
     "sixdof_roll_response_metric_reference": r"$\frac{b}{2V}\frac{(\phi_f-\phi_0)/t_f}{\delta_r}$",
-    "linear_roll_response_metric": r"$\frac{\Delta\phi_{lin}/\Delta\tau}{\delta_r}$",
-    "linear_roll_response_metric_reference": r"$\frac{(\phi_{lin,f}-\phi_0)/\tau_f}{\delta_r}$",
+    "linear_finite_time_roll_metric": r"$\frac{\Delta\phi_{lin}/\Delta\tau}{\delta_r}$",
+    "linear_roll_response_phi_rate_per_delta_r": r"$((\Delta\phi/\Delta t)/\delta_r)_{linear}$",
     "linear_roll_response_fraction_of_target": r"$\Delta\phi_{lin,f}/\Delta\phi_{target}$",
-    "linear_taylor_tau_eval": r"$\tau_{Taylor}$",
-    "linear_taylor_t_eval": r"$t_{Taylor}$",
-    "linear_taylor_bp": r"$b_p$",
+    "linear_taylor_K1": r"$K_1$",
     "linear_taylor_K2": r"$K_2$",
     "linear_taylor_K3": r"$K_3$",
-    "linear_taylor_metric_reference_2nd": r"$K_{lin,Taylor,2}$",
-    "linear_taylor_metric_reference_3rd": r"$K_{lin,Taylor,3}$",
-    "linear_taylor_metric_reference_4th": r"$K_{lin,Taylor,4}$",
-    "linear_taylor_phi_per_delta_r_2nd": r"$\Delta\phi_{Taylor,2}/\delta_r$",
-    "linear_taylor_phi_per_delta_r_3rd": r"$\Delta\phi_{Taylor,3}/\delta_r$",
-    "linear_taylor_phi_per_delta_r_4th": r"$\Delta\phi_{Taylor,4}/\delta_r$",
-    "simple_taylor_tau_eval": r"$\tau_{Taylor}$",
-    "simple_taylor_t_eval": r"$t_{Taylor}$",
+    "simple_K1_direct_roll": r"$K_{1,\delta_r\to l}$",
     "simple_K2_sideforce_dihedral": r"$K_{2,Y\to\beta\to l}$",
     "simple_K2_yawrate_roll": r"$K_{2,N\to r\to l}$",
     "simple_K2_total": r"$K_{2,simple}$",
-    "simple_K3_beta_feedback": r"$K_{3,\beta feedback}$",
     "simple_K3_yawrate_to_beta_dihedral": r"$K_{3,r\to\beta\to l}$",
     "simple_K2_plus_K3_yawrate_roll_beta_dihedral": r"$K_{2,N\to r\to l}+K_{3,r\to\beta\to l}$",
-    "simple_K3_roll_yaw_damping_correction": r"$K_{2,N\to r\to l}(D+E)$",
-    "simple_K3_damped_effective": r"$K_{3,r\to\beta\to l}+K_{2,N\to r\to l}(D+E)$",
-    "simple_K3_roll_damping": r"$K_{3,roll damping}$",
-    "simple_K3_beta_to_yawrate_roll": r"$K_{3,\beta\to r\to l}$",
-    "simple_K3_yaw_damping": r"$K_{3,yaw damping}$",
-    "simple_K3_total": r"$K_{3,simple}$",
-    "simple_taylor_metric_reference_3rd": r"$K_{simple,Taylor,3}$",
-    "simple_taylor_metric_reference_4th": r"$K_{simple,Taylor,4}$",
-    "simple_taylor_phi_per_delta_r_3rd": r"$\Delta\phi_{simple,3}/\delta_r$",
-    "simple_taylor_phi_per_delta_r_4th": r"$\Delta\phi_{simple,4}/\delta_r$",
+    "simple_roll_damping_rate": r"$\lambda_p$",
+    "simple_yaw_damping_rate": r"$\lambda_r$",
+    "simple_K3_yawrate_roll_damping_correction": r"$K_{2,N\to r\to l}(\lambda_p+\lambda_r)$",
+    "simple_K3_yawrate_beta_dihedral_damped": r"$K_{3,r\to\beta\to l}+K_{2,N\to r\to l}(\lambda_p+\lambda_r)$",
+    "simple_K3_reduced": r"$K_{3,simple}$",
+    "simple_turn_rate_full": r"$K_{turn,full}=\frac{1}{\mu_I I_x}C_{l\delta_r}+\frac{\mu_Y}{\mu_I I_x}C_{l\beta}C_{Y\delta_r}+(C_{l\hat{r}}-C_{l\beta})C_{n\delta_r}$",
+    "simple_turn_rate": r"$K_{turn}=(C_{l\hat{r}}-C_{n_\beta})C_{n\delta_r}$",
     "linear_tau_final": r"$\tau_f$",
     "linear_tau_reach": r"$\tau_{reach}$",
     "initial_beta_prime_per_delta_r": r"$\beta\prime(0)/\delta_r$",
@@ -1469,10 +1457,11 @@ VV_GAMMA_LATEX_LABELS = {
     "initial_phi_triple_prime_per_delta_r": r"$\phi\prime\prime\prime(0)/\delta_r$",
     "initial_mu_y": r"$\mu_Y$",
     "initial_mu_inertia": r"$\mu_I$",
-    "sixdof_roll_response_phi_rate_per_delta_r": r"$(\Delta\phi/\Delta t)/\delta_r$",
+    "sixdof_roll_response_phi_rate_per_delta_r": r"$\{(\Delta\phi/\Delta t)/\delta_r\}_{6DOF}$",
     "sixdof_roll_response_fraction_of_target": r"$(\phi_f-\phi_0)/\Delta\phi_{target}$",
     "turn_trim_beta": r"$\beta_{trim}$",
     "turn_trim_delta_r": r"$\delta_{r,trim}$",
+    "turn_trim_delta_r_per_beta": r"$\left(\delta_r/\beta\right)_{\mathrm{trim}}$",
     "turn_trim_Omega": r"$\Omega_{trim}$",
     "turn_trim_solution_beta": r"$\beta$",
     "turn_trim_solution_delta_r": r"$\delta_r$",
@@ -1621,6 +1610,23 @@ def build_vv_gamma_response_surface(
         "method": selected_method,
     }
 
+def _format_vv_gamma_axes(
+    ax,
+    *,
+    label: str,
+    x_ticks: Sequence[float] | None = None,
+    y_ticks: Sequence[float] | None = None,
+) -> None:
+    """Apply the common Vv-Gamma axis labels, title, and optional ticks."""
+
+    ax.set_xlabel(r"$V_v$")
+    ax.set_ylabel(r"$\Gamma_{\mathrm{eff}}\ [\mathrm{deg}]$")
+    ax.set_title(label)
+    if x_ticks is not None:
+        ax.set_xticks(x_ticks)
+    if y_ticks is not None:
+        ax.set_yticks(y_ticks)
+
 def plot_vv_gamma_contour(
     results: pd.DataFrame,
     value_column: str,
@@ -1633,10 +1639,18 @@ def plot_vv_gamma_contour(
     method: str = "linear",
     fallback_method: str = "nearest",
     value_label: str | None = None,
+    colorbar_ticks: Sequence[float] | None = None,
+    x_ticks: Sequence[float] | None = None,
+    y_ticks: Sequence[float] | None = None,
     show_points: bool = True,
     show_colorbar: bool = True,
 ):
-    """Plot a Vv-Gamma response-surface contour from completed results."""
+    """Plot a Vv-Gamma response-surface contour from completed results.
+
+    colorbar_ticks controls only the tick locations shown on the colorbar.
+    levels still controls the contour-fill boundaries.  x_ticks and y_ticks
+    optionally override the Vv and Gamma_eff axis tick locations.
+    """
 
     import matplotlib.pyplot as plt
 
@@ -1658,16 +1672,100 @@ def plot_vv_gamma_contour(
     contour = None
     colorbar = None
     if surface["zz"] is not None:
-        contour = ax.contourf(surface["xx"], surface["yy"], surface["zz"], levels=levels)
+        contour = ax.contourf(
+            surface["xx"],
+            surface["yy"],
+            surface["zz"],
+            levels=levels,
+            cmap="jet",
+        )
         if show_colorbar:
-            colorbar = ax.figure.colorbar(contour, ax=ax)
+            colorbar = ax.figure.colorbar(contour, ax=ax, ticks=colorbar_ticks)
             colorbar.set_label(label)
 
     if show_points:
         ax.scatter(surface["x"], surface["y"], s=16)
 
-    ax.set_xlabel(r"$V_v$")
-    ax.set_ylabel(r"$\Gamma_{\mathrm{eff}}\ [\mathrm{deg}]$")
-    ax.set_title(label)
+    _format_vv_gamma_axes(ax, label=label, x_ticks=x_ticks, y_ticks=y_ticks)
 
     return ax, contour, colorbar, surface
+
+def plot_vv_gamma_contour_panel(
+    results: pd.DataFrame,
+    column: str,
+    *,
+    ax=None,
+    label: str | None = None,
+    levels: int | Sequence[float] = 12,
+    x_column: str = "Vv",
+    y_column: str = "Gamma_eff_deg",
+    grid_size: int = 80,
+    method: str = "linear",
+    fallback_method: str = "nearest",
+    colorbar_ticks_by_column: Mapping[str, Sequence[float]] | None = None,
+    x_ticks: Sequence[float] | None = None,
+    y_ticks: Sequence[float] | None = None,
+    show_points: bool = True,
+    show_colorbar: bool = True,
+    print_errors: bool = True,
+):
+    """Plot one Vv-Gamma contour panel and handle missing/failed columns.
+
+    colorbar_ticks_by_column is keyed by the result column name, not the LaTeX
+    label.  This keeps notebook-side plot settings stable even when labels are
+    renamed.
+    """
+
+    import matplotlib.pyplot as plt
+
+    if ax is None:
+        _, ax = plt.subplots()
+
+    panel_label = vv_gamma_latex_label(column) if label is None else label
+    if column not in results.columns:
+        ax.text(
+            0.5,
+            0.5,
+            f"missing\n{column}",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        _format_vv_gamma_axes(ax, label=panel_label, x_ticks=x_ticks, y_ticks=y_ticks)
+        return ax, None, None, None
+
+    colorbar_ticks = None
+    if colorbar_ticks_by_column is not None:
+        colorbar_ticks = colorbar_ticks_by_column.get(column)
+
+    try:
+        return plot_vv_gamma_contour(
+            results,
+            column,
+            ax=ax,
+            levels=levels,
+            x_column=x_column,
+            y_column=y_column,
+            grid_size=grid_size,
+            method=method,
+            fallback_method=fallback_method,
+            value_label=panel_label,
+            colorbar_ticks=colorbar_ticks,
+            x_ticks=x_ticks,
+            y_ticks=y_ticks,
+            show_points=show_points,
+            show_colorbar=show_colorbar,
+        )
+    except Exception as exc:
+        ax.text(
+            0.5,
+            0.5,
+            f"failed\n{column}\n{type(exc).__name__}",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        _format_vv_gamma_axes(ax, label=panel_label, x_ticks=x_ticks, y_ticks=y_ticks)
+        if print_errors:
+            print(f"{column}: {exc!r}")
+        return ax, None, None, None

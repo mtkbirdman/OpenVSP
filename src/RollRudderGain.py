@@ -237,9 +237,6 @@ def calculate_linear_lateral_response_metrics_from_stab(
     t_final = float(t_final)
     if t_final <= 0.0:
         raise ValueError("t_final must be positive.")
-    taylor_tau_eval = float(taylor_tau_eval)
-    if taylor_tau_eval <= 0.0:
-        raise ValueError("taylor_tau_eval must be positive.")
     delta_r = float(delta_r)
     if abs(delta_r) < 1.0e-14:
         raise ValueError("delta_r must be non-zero.")
@@ -340,24 +337,9 @@ def calculate_linear_lateral_response_metrics_from_stab(
     AB = A @ B
     A2B = A @ AB
     A3B = A @ A2B
-    linear_taylor_bp = float(AB[3])
+    linear_taylor_K1 = float(AB[3])
     linear_taylor_K2 = float(A2B[3])
     linear_taylor_K3 = float(A3B[3])
-    taylor_tau = taylor_tau_eval
-    taylor_t_eval = taylor_tau * second_per_tau
-    linear_taylor_phi_per_delta_r_2nd = 0.5 * taylor_tau**2 * linear_taylor_bp
-    linear_taylor_phi_per_delta_r_3rd = (
-        linear_taylor_phi_per_delta_r_2nd
-        + taylor_tau**3 * linear_taylor_K2 / 6.0
-    )
-    linear_taylor_phi_per_delta_r_4th = (
-        linear_taylor_phi_per_delta_r_3rd
-        + taylor_tau**4 * linear_taylor_K3 / 24.0
-    )
-    linear_taylor_metric_reference_2nd = linear_taylor_phi_per_delta_r_2nd / taylor_tau
-    linear_taylor_metric_reference_3rd = linear_taylor_phi_per_delta_r_3rd / taylor_tau
-    linear_taylor_metric_reference_4th = linear_taylor_phi_per_delta_r_4th / taylor_tau
-
     # Simplified algebraic explanation terms.
     #
     # Assumptions used only in these simple_* columns:
@@ -373,28 +355,17 @@ def calculate_linear_lateral_response_metrics_from_stab(
     #   rudder -> side force -> beta -> dihedral roll
     #   rudder -> yawing moment -> rhat -> yaw-rate roll
     simple_taylor_assumptions = (
-        "Ixz=0; Cl_delta_r=0; CY_phat=0; CY_rhat=0; "
-        "Cn_phat=0; alpha0=0; retain beta_prime_kinematic_-rhat"
+        "Ixz=0; Cl_delta_r=0 for K2/K3 reduced paths; "
+        "CY_phat=0; CY_rhat=0; Cn_phat=0; alpha0=0; "
+        "retain beta_prime_kinematic_-rhat"
     )
-    simple_bp = 0.0
+    simple_K1_direct_roll = float(mu_inertia * Izz * Cl_delta_r)
     simple_K2_sideforce_dihedral = float(mu_inertia * mu_y * Izz * Cl_beta * CY_delta_r)
     simple_K2_yawrate_roll = float(mu_inertia**2 * Ixx * Izz * Cl_rhat * Cn_delta_r)
     simple_K2_total = simple_K2_sideforce_dihedral + simple_K2_yawrate_roll
 
-    simple_K3_beta_feedback = float(
-        mu_inertia * mu_y**2 * Izz * Cl_beta * CY_beta * CY_delta_r
-    )
     simple_K3_yawrate_to_beta_dihedral = float(
         -mu_inertia**2 * Ixx * Izz * Cl_beta * Cn_delta_r
-    )
-    simple_K3_roll_damping = float(
-        mu_inertia * Izz * Cl_phat * simple_K2_total
-    )
-    simple_K3_beta_to_yawrate_roll = float(
-        mu_inertia**2 * mu_y * Ixx * Izz * Cl_rhat * Cn_beta * CY_delta_r
-    )
-    simple_K3_yaw_damping = float(
-        mu_inertia**3 * Ixx**2 * Izz * Cl_rhat * Cn_rhat * Cn_delta_r
     )
 
     # Minimal yaw-rate-roll / yaw-rate-to-beta-dihedral explanation terms.
@@ -406,27 +377,47 @@ def calculate_linear_lateral_response_metrics_from_stab(
     )
     simple_roll_damping_rate = float(mu_inertia * Izz * Cl_phat)
     simple_yaw_damping_rate = float(mu_inertia * Ixx * Cn_rhat)
-    simple_K3_roll_yaw_damping_correction = float(
+    simple_K3_yawrate_roll_damping_correction = float(
         simple_K2_yawrate_roll * (simple_roll_damping_rate + simple_yaw_damping_rate)
     )
-    simple_K3_damped_effective = float(
-        simple_K3_yawrate_to_beta_dihedral + simple_K3_roll_yaw_damping_correction
+    simple_K3_yawrate_beta_dihedral_damped = float(
+        simple_K3_yawrate_to_beta_dihedral + simple_K3_yawrate_roll_damping_correction
+    )
+    simple_K3_reduced = float(
+        simple_K3_yawrate_to_beta_dihedral
+        + simple_roll_damping_rate * simple_K2_total
+        + simple_yaw_damping_rate * simple_K2_yawrate_roll
     )
 
-    simple_K3_total = (
-        simple_K3_beta_feedback
-        + simple_K3_yawrate_to_beta_dihedral
-        + simple_K3_roll_damping
-        + simple_K3_beta_to_yawrate_roll
-        + simple_K3_yaw_damping
+    # Normalized rudder-only turn tendency proxies.
+    #
+    # These are not turn-rate solutions.  They are dimensionless signed
+    # coupling indicators obtained by normalizing the simple Taylor path
+    # coefficients by mu_inertia**2 * Ixx * Izz:
+    #
+    #   simple_turn_rate_full
+    #       = Cl_delta_r/(mu_inertia*Ixx)
+    #       + mu_y*Cl_beta*CY_delta_r/(mu_inertia*Ixx)
+    #       + (Cl_rhat - Cl_beta)*Cn_delta_r
+    #
+    #   simple_turn_rate
+    #       = (Cl_rhat - Cl_beta)*Cn_delta_r
+    #
+    # The latter keeps only the yawing-moment -> yaw-rate -> roll and
+    # yawing-moment -> yaw-rate -> beta -> dihedral-roll paths.
+    simple_turn_rate_full = float(
+        (
+            simple_K1_direct_roll
+            + simple_K2_sideforce_dihedral
+            + simple_K2_yawrate_roll
+            + simple_K3_yawrate_to_beta_dihedral
+        )
+        / (mu_inertia**2 * Ixx * Izz)
     )
-    simple_taylor_phi_per_delta_r_3rd = taylor_tau**3 * simple_K2_total / 6.0
-    simple_taylor_phi_per_delta_r_4th = (
-        simple_taylor_phi_per_delta_r_3rd
-        + taylor_tau**4 * simple_K3_total / 24.0
+    simple_turn_rate = float(
+        simple_K2_plus_K3_yawrate_roll_beta_dihedral
+        / (mu_inertia**2 * Ixx * Izz)
     )
-    simple_taylor_metric_reference_3rd = simple_taylor_phi_per_delta_r_3rd / taylor_tau
-    simple_taylor_metric_reference_4th = simple_taylor_phi_per_delta_r_4th / taylor_tau
 
     def rhs(tau: float, state: np.ndarray) -> np.ndarray:
         return A @ state + B * delta_r
@@ -501,45 +492,31 @@ def calculate_linear_lateral_response_metrics_from_stab(
         "linear_dt_reach": t_reach,
         "linear_roll_response_phi_rate": target_phi_rate,
         "linear_roll_response_phi_rate_per_delta_r": target_phi_rate_per_delta_r,
-        "linear_roll_response_metric": target_metric,
+        "linear_finite_time_roll_metric": target_metric,
         "linear_roll_response_error": error,
         "linear_roll_response_reference_phi_rate_to_t_final": reference_phi_rate,
         "linear_roll_response_reference_phi_rate_per_delta_r_to_t_final": reference_phi_rate / delta_r,
         "linear_roll_response_metric_reference": reference_metric,
         "linear_roll_response_fraction_of_target": phi_final / target_delta_phi,
-        "linear_taylor_source": "exact_taylor_terms_from_full_linear_A_B_at_taylor_tau_eval",
-        "linear_taylor_tau_eval": taylor_tau,
-        "linear_taylor_t_eval": taylor_t_eval,
-        "linear_taylor_bp": linear_taylor_bp,
+        "linear_taylor_source": "exact_taylor_coefficients_from_full_linear_A_B",
+        "linear_taylor_K1": linear_taylor_K1,
         "linear_taylor_K2": linear_taylor_K2,
         "linear_taylor_K3": linear_taylor_K3,
-        "linear_taylor_phi_per_delta_r_2nd": linear_taylor_phi_per_delta_r_2nd,
-        "linear_taylor_phi_per_delta_r_3rd": linear_taylor_phi_per_delta_r_3rd,
-        "linear_taylor_phi_per_delta_r_4th": linear_taylor_phi_per_delta_r_4th,
-        "linear_taylor_metric_reference_2nd": linear_taylor_metric_reference_2nd,
-        "linear_taylor_metric_reference_3rd": linear_taylor_metric_reference_3rd,
-        "linear_taylor_metric_reference_4th": linear_taylor_metric_reference_4th,
-        "simple_taylor_source": "simplified_lateral_response_paths_at_taylor_tau_eval",
-        "simple_taylor_tau_eval": taylor_tau,
-        "simple_taylor_t_eval": taylor_t_eval,
+        "simple_taylor_source": "simplified_lateral_response_path_coefficients",
         "simple_taylor_assumptions": simple_taylor_assumptions,
-        "simple_bp": simple_bp,
+        "simple_K1_direct_roll": simple_K1_direct_roll,
         "simple_K2_sideforce_dihedral": simple_K2_sideforce_dihedral,
         "simple_K2_yawrate_roll": simple_K2_yawrate_roll,
         "simple_K2_total": simple_K2_total,
-        "simple_K3_beta_feedback": simple_K3_beta_feedback,
         "simple_K3_yawrate_to_beta_dihedral": simple_K3_yawrate_to_beta_dihedral,
         "simple_K2_plus_K3_yawrate_roll_beta_dihedral": simple_K2_plus_K3_yawrate_roll_beta_dihedral,
-        "simple_K3_roll_yaw_damping_correction": simple_K3_roll_yaw_damping_correction,
-        "simple_K3_damped_effective": simple_K3_damped_effective,
-        "simple_K3_roll_damping": simple_K3_roll_damping,
-        "simple_K3_beta_to_yawrate_roll": simple_K3_beta_to_yawrate_roll,
-        "simple_K3_yaw_damping": simple_K3_yaw_damping,
-        "simple_K3_total": simple_K3_total,
-        "simple_taylor_phi_per_delta_r_3rd": simple_taylor_phi_per_delta_r_3rd,
-        "simple_taylor_phi_per_delta_r_4th": simple_taylor_phi_per_delta_r_4th,
-        "simple_taylor_metric_reference_3rd": simple_taylor_metric_reference_3rd,
-        "simple_taylor_metric_reference_4th": simple_taylor_metric_reference_4th,
+        "simple_roll_damping_rate": simple_roll_damping_rate,
+        "simple_yaw_damping_rate": simple_yaw_damping_rate,
+        "simple_K3_yawrate_roll_damping_correction": simple_K3_yawrate_roll_damping_correction,
+        "simple_K3_yawrate_beta_dihedral_damped": simple_K3_yawrate_beta_dihedral_damped,
+        "simple_K3_reduced": simple_K3_reduced,
+        "simple_turn_rate_full": simple_turn_rate_full,
+        "simple_turn_rate": simple_turn_rate,
         "initial_response_source": "small_disturbance_lateral_taylor_terms_from_linear_model",
         "initial_tau_per_second": tau_per_second,
         "initial_second_per_tau": second_per_tau,
@@ -1422,7 +1399,7 @@ def calculate_roll_response_metric_by_delta_phi(
         "sixdof_metric_Bref": float(Bref),
         "sixdof_roll_response_phi_rate": math.nan,
         "sixdof_roll_response_phi_rate_per_delta_r": math.nan,
-        "sixdof_roll_response_metric": math.nan,
+        "sixdof_finite_time_roll_metric": math.nan,
         "sixdof_roll_response_error": "" if reached else "target_delta_phi_not_reached",
         "sixdof_roll_response_reference_phi_rate_to_t_final": reference_phi_rate,
         "sixdof_roll_response_reference_phi_rate_per_delta_r_to_t_final": reference_phi_rate / float(delta_r),
@@ -1438,7 +1415,7 @@ def calculate_roll_response_metric_by_delta_phi(
             phi_rate = target / dt_reach
             result["sixdof_roll_response_phi_rate"] = phi_rate
             result["sixdof_roll_response_phi_rate_per_delta_r"] = phi_rate / float(delta_r)
-            result["sixdof_roll_response_metric"] = scale * phi_rate / float(delta_r)
+            result["sixdof_finite_time_roll_metric"] = scale * phi_rate / float(delta_r)
     return result
 
 def compare_quasi_steady_and_6dof_rudder_roll_gain(
@@ -1559,7 +1536,7 @@ def compare_quasi_steady_and_6dof_rudder_roll_gain(
             "phi_slope_per_delta_r_sim_minus_p_stab": estimated["phi_slope_per_delta_r_sim"] - quasi["p_per_delta_r"],
         }
     else:
-        metric = float(estimated["sixdof_roll_response_metric"])
+        metric = float(estimated["sixdof_finite_time_roll_metric"])
         metric_reference = float(estimated["sixdof_roll_response_metric_reference"])
         p_scale = 2.0 * float(estimated["sixdof_metric_Vinf"]) / float(estimated["sixdof_metric_Bref"])
         differences = {
