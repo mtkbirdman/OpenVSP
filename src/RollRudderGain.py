@@ -585,12 +585,31 @@ def _linear_aero_from_stab(
     state: Sequence[float],
     controls: Mapping[str, float],
     control_columns: Mapping[str, str],
+    *,
+    gust_body_velocity: Sequence[float] = (0.0, 0.0, 0.0),
 ) -> dict[str, float]:
-    """Evaluate solver-axis aero coefficients from .stab linear derivatives."""
+    """Evaluate solver-axis aero coefficients from .stab linear derivatives.
+
+    state[:3] is the aircraft velocity in solver body axes.
+    gust_body_velocity is the local atmospheric velocity in the same axes.
+    Aerodynamic alpha, beta, reduced rates, and dynamic pressure are evaluated
+    from the relative air velocity
+
+        [u_air, v_air, w_air] = [u, v, w] - gust_body_velocity.
+
+    With a positive lateral gust v_g in +y_body, this gives beta_air roughly
+    equal to beta_body - v_g / V, matching the crosswind-gust article sign
+    convention.
+    """
     u, v, w, p, q, r = [float(value) for value in state[:6]]
-    V = max(math.sqrt(u * u + v * v + w * w), 1.0e-12)
-    alpha = math.atan2(w, u)
-    beta = math.asin(max(-1.0, min(1.0, v / V)))
+    u_g, v_g, w_g = [float(value) for value in gust_body_velocity]
+    u_air = u - u_g
+    v_air = v - v_g
+    w_air = w - w_g
+
+    V = max(math.sqrt(u_air * u_air + v_air * v_air + w_air * w_air), 1.0e-12)
+    alpha = math.atan2(w_air, u_air)
+    beta = math.asin(max(-1.0, min(1.0, v_air / V)))
     increments: dict[str, float] = {
         "Alpha": alpha - stab.alpha0,
         "Beta": beta - stab.beta0,
@@ -604,8 +623,45 @@ def _linear_aero_from_stab(
         if column_name in stab.derivatives.columns:
             increments[column_name] = float(controls.get(delta_name, 0.0))
     coefficients = _evaluate_stab_linear_coefficients(stab, increments, alpha=alpha, beta=beta)
-    coefficients.update({"V": V, "alpha": alpha, "beta": beta})
+    coefficients.update(
+        {
+            "V": V,
+            "alpha": alpha,
+            "beta": beta,
+            "u_air": u_air,
+            "v_air": v_air,
+            "w_air": w_air,
+            "u_gust": u_g,
+            "v_gust": v_g,
+            "w_gust": w_g,
+        }
+    )
     return coefficients
+
+def one_cosine_gust_velocity(
+    time: float,
+    *,
+    Uds: float,
+    H: float,
+    V: float,
+    start_time: float = 0.0,
+) -> float:
+    """Return a signed 1-cosine gust velocity at time.
+
+    Uds is the signed peak gust velocity. H is the gust-gradient distance.
+    The spatial gust coordinate is s = V * (time - start_time).  Outside
+    0 <= s <= 2H the gust velocity is zero.
+    """
+    H = float(H)
+    V = float(V)
+    if H <= 0.0:
+        raise ValueError("H must be positive for a 1-cosine gust.")
+    if V <= 0.0:
+        raise ValueError("V must be positive for a 1-cosine gust.")
+    s = V * (float(time) - float(start_time))
+    if s < 0.0 or s > 2.0 * H:
+        return 0.0
+    return 0.5 * float(Uds) * (1.0 - math.cos(math.pi * s / H))
 
 def _resolve_initial_controls(
     stab,
@@ -883,6 +939,9 @@ def simulate_6dof_rudder_step_from_stab(
         "Izz": float(Izz),
         "Ixz": float(Ixz),
         "rho": rho_used,
+        "Sref": float(stab.Sref),
+        "Cref": float(stab.Cref),
+        "Bref": float(stab.Bref),
         "control_columns": control_columns,
         "delta_e0": delta_e0,
         "delta_e": float(delta_e_values[0]) if delta_e_values else delta_e0,
@@ -902,6 +961,394 @@ def simulate_6dof_rudder_step_from_stab(
         "target_delta_phi_reached": bool(target_reached),
     })
     return history
+
+def simulate_6dof_crosswind_gust_from_stab(
+    stab_path: str | Path,
+    *,
+    mass: float,
+    Ixx: float,
+    Iyy: float,
+    Izz: float,
+    Ixz: float = 0.0,
+    Uds: float,
+    H: float,
+    t_final: float | None = None,
+    control_map: Mapping[str, str] | None = None,
+    delta_a: float = 0.0,
+    delta_e: float | None = None,
+    delta_r: float = 0.0,
+    trim_elevator: bool = True,
+    theta_hold: bool = False,
+    theta_ref: float | None = None,
+    theta_hold_kp: float = 0.0,
+    theta_hold_kq: float = 0.0,
+    delta_e_min: float | None = None,
+    delta_e_max: float | None = None,
+    thrust: float | None = None,
+    trim_thrust: bool = True,
+    g: float = 9.80665,
+    rho: float | None = None,
+    phi0: float = 0.0,
+    theta0: float | None = None,
+    psi0: float = 0.0,
+    position0: Sequence[float] = (0.0, 0.0, 0.0),
+    gust_start_time: float = 0.0,
+    gust_body_axis: str = "y",
+    max_step: float | None = None,
+    rtol: float = 1.0e-8,
+    atol: float = 1.0e-10,
+) -> pd.DataFrame:
+    """Integrate a 6DOF nonlinear rigid-body model with a lateral 1-cosine gust.
+
+    The aircraft states remain the rigid-body velocities and attitudes.  The
+    gust is applied only when evaluating aerodynamic coefficients, by subtracting
+    the local atmospheric velocity from the aircraft body-axis velocity.  A
+    positive y-axis gust means atmospheric velocity in +y_body, so the effective
+    aerodynamic sideslip decreases as beta_air ~= beta_body - v_g / V.
+
+    Uds is the signed peak gust velocity.  H is the gust-gradient distance.
+    The gust runs over 0 <= s <= 2H, where s = V0 * (t - gust_start_time).
+    """
+    stab = read_vspaero_stab(stab_path)
+    control_columns = resolve_control_columns_from_stab(stab, control_map)
+    rho_used = float(stab.rho0 if rho is None else rho)
+    Vref = float(stab.V0)
+    if Vref <= 0.0:
+        raise ValueError("The .stab file must contain a positive Vinf for gust simulation.")
+    if float(H) <= 0.0:
+        raise ValueError("H must be positive.")
+    if gust_body_axis not in {"x", "y", "z"}:
+        raise ValueError("gust_body_axis must be 'x', 'y', or 'z'.")
+
+    gust_duration = 2.0 * float(H) / Vref
+    if t_final is None:
+        t_final = float(gust_start_time) + gust_duration
+    if float(t_final) <= 0.0:
+        raise ValueError("t_final must be positive.")
+
+    state0 = _initial_state_from_stab(stab, phi0=phi0, theta0=theta0, psi0=psi0, position0=position0)
+    controls = _resolve_initial_controls(
+        stab,
+        state0,
+        control_columns,
+        delta_a=delta_a,
+        delta_e=delta_e,
+        delta_r=delta_r,
+        trim_elevator=trim_elevator,
+    )
+    delta_e0 = float(controls["delta_e"])
+    theta_reference = float(state0[10] if theta_ref is None else theta_ref)
+    elevator_column = control_columns.get("delta_e")
+    cm_delta_e = None
+    if theta_hold:
+        if elevator_column is None or elevator_column not in stab.derivatives.columns:
+            raise KeyError("Could not resolve elevator control column for theta_hold=True.")
+        cm_delta_e = _stab_value(stab, "CMm", elevator_column)
+        if abs(cm_delta_e) < 1.0e-14:
+            raise ZeroDivisionError(f"Elevator pitch derivative is too small: CMm/{elevator_column}={cm_delta_e}")
+
+    thrust_used = _resolve_initial_thrust(
+        stab,
+        state0,
+        controls,
+        control_columns,
+        mass=mass,
+        rho=rho_used,
+        g=g,
+        thrust=thrust,
+        trim_thrust=trim_thrust,
+    )
+
+    inertia_denominator = Ixx * Izz - Ixz * Ixz
+    if abs(inertia_denominator) < 1.0e-14:
+        raise ValueError("Ixx * Izz - Ixz**2 must not be near zero.")
+
+    def gust_body_velocity_at(t: float) -> tuple[float, float, float]:
+        value = one_cosine_gust_velocity(t, Uds=Uds, H=H, V=Vref, start_time=gust_start_time)
+        if gust_body_axis == "x":
+            return value, 0.0, 0.0
+        if gust_body_axis == "z":
+            return 0.0, 0.0, value
+        return 0.0, value, 0.0
+
+    def elevator_deflection_for_state(state: Sequence[float]) -> float:
+        if not theta_hold:
+            return delta_e0
+        _, _, _, _, q, r, _, _, _, phi, theta, _ = [float(value) for value in state]
+        theta_rate = q * math.cos(phi) - r * math.sin(phi)
+        pitch_hold_moment = -theta_hold_kp * (theta - theta_reference) - theta_hold_kq * theta_rate
+        value = delta_e0 + pitch_hold_moment / cm_delta_e
+        if delta_e_min is not None:
+            value = max(float(delta_e_min), value)
+        if delta_e_max is not None:
+            value = min(float(delta_e_max), value)
+        return float(value)
+
+    def rhs(t: float, state: np.ndarray) -> np.ndarray:
+        u, v, w, p, q, r, x_e, y_e, z_e, phi, theta, psi = state
+        delta_e_current = elevator_deflection_for_state(state)
+        controls_current = {"delta_a": controls["delta_a"], "delta_e": delta_e_current, "delta_r": controls["delta_r"]}
+        coeff = _linear_aero_from_stab(
+            stab,
+            state,
+            controls_current,
+            control_columns,
+            gust_body_velocity=gust_body_velocity_at(t),
+        )
+        qbar_s = 0.5 * rho_used * coeff["V"] * coeff["V"] * stab.Sref
+        X = thrust_used + qbar_s * coeff["CX"]
+        Y = qbar_s * coeff["CY"]
+        Z = qbar_s * coeff["CZ"]
+        L = qbar_s * stab.Bref * coeff["Cl"]
+        M = qbar_s * stab.Cref * coeff["Cm"]
+        N = qbar_s * stab.Bref * coeff["Cn"]
+
+        u_dot = r * v - q * w + X / mass - g * math.sin(theta)
+        v_dot = p * w - r * u + Y / mass + g * math.sin(phi) * math.cos(theta)
+        w_dot = q * u - p * v + Z / mass + g * math.cos(phi) * math.cos(theta)
+        p_dot = (Izz * (L + (Iyy - Izz) * q * r + Ixz * p * q) + Ixz * (N + (Ixx - Iyy) * p * q - Ixz * q * r)) / inertia_denominator
+        q_dot = (M + (Izz - Ixx) * p * r - Ixz * (p * p - r * r)) / Iyy
+        r_dot = (Ixz * (L + (Iyy - Izz) * q * r + Ixz * p * q) + Ixx * (N + (Ixx - Iyy) * p * q - Ixz * q * r)) / inertia_denominator
+
+        cos_theta = math.cos(theta)
+        if abs(cos_theta) < 1.0e-10:
+            cos_theta = math.copysign(1.0e-10, cos_theta)
+
+        x_dot = u * math.cos(theta) * math.cos(psi) + v * (math.sin(phi) * math.sin(theta) * math.cos(psi) - math.cos(phi) * math.sin(psi)) + w * (math.cos(phi) * math.sin(theta) * math.cos(psi) + math.sin(phi) * math.sin(psi))
+        y_dot = u * math.cos(theta) * math.sin(psi) + v * (math.sin(phi) * math.sin(theta) * math.sin(psi) + math.cos(phi) * math.cos(psi)) + w * (math.cos(phi) * math.sin(theta) * math.sin(psi) - math.sin(phi) * math.cos(psi))
+        z_dot = -u * math.sin(theta) + v * math.sin(phi) * math.cos(theta) + w * math.cos(phi) * math.cos(theta)
+        phi_dot = p + q * math.sin(phi) * math.tan(theta) + r * math.cos(phi) * math.tan(theta)
+        theta_dot = q * math.cos(phi) - r * math.sin(phi)
+        psi_dot = (q * math.sin(phi) + r * math.cos(phi)) / cos_theta
+        return np.array([u_dot, v_dot, w_dot, p_dot, q_dot, r_dot, x_dot, y_dot, z_dot, phi_dot, theta_dot, psi_dot], dtype=float)
+
+    kwargs: dict[str, Any] = {"rtol": rtol, "atol": atol}
+    if max_step is not None:
+        kwargs["max_step"] = float(max_step)
+
+    solution = solve_ivp(rhs, (0.0, float(t_final)), state0, **kwargs)
+    if not solution.success:
+        raise RuntimeError(solution.message)
+
+    columns = ["u", "v", "w", "p", "q", "r", "x_e", "y_e", "z_e", "phi", "theta", "psi"]
+    history = pd.DataFrame(solution.y.T, columns=columns)
+    history.insert(0, "time", solution.t)
+
+    phidot_values, phat_values, qhat_values, rhat_values = [], [], [], []
+    V_values, alpha_values, beta_values = [], [], []
+    V_body_values, alpha_body_values, beta_body_values = [], [], []
+    delta_e_values = []
+    CX_values, CY_values, CZ_values = [], [], []
+    CL_values, CD_values, CS_values = [], [], []
+    gust_x_values, gust_y_values, gust_z_values, beta_g_values = [], [], [], []
+    u_air_values, v_air_values, w_air_values = [], [], []
+
+    for row in history.itertuples(index=False):
+        state = np.array([row.u, row.v, row.w, row.p, row.q, row.r, row.x_e, row.y_e, row.z_e, row.phi, row.theta, row.psi])
+        delta_e_current = elevator_deflection_for_state(state)
+        controls_current = {"delta_a": controls["delta_a"], "delta_e": delta_e_current, "delta_r": controls["delta_r"]}
+        gust_body_velocity = gust_body_velocity_at(row.time)
+        coeff = _linear_aero_from_stab(
+            stab,
+            state,
+            controls_current,
+            control_columns,
+            gust_body_velocity=gust_body_velocity,
+        )
+        V = coeff["V"]
+        V_body = max(math.sqrt(row.u * row.u + row.v * row.v + row.w * row.w), 1.0e-12)
+        alpha_body = math.atan2(row.w, row.u)
+        beta_body = math.asin(max(-1.0, min(1.0, row.v / V_body)))
+
+        delta_e_values.append(delta_e_current)
+        phidot_values.append(row.p + row.q * math.sin(row.phi) * math.tan(row.theta) + row.r * math.cos(row.phi) * math.tan(row.theta))
+        phat_values.append(row.p * stab.Bref / (2.0 * V))
+        qhat_values.append(row.q * stab.Cref / (2.0 * V))
+        rhat_values.append(row.r * stab.Bref / (2.0 * V))
+        V_values.append(V)
+        alpha_values.append(coeff["alpha"])
+        beta_values.append(coeff["beta"])
+        V_body_values.append(V_body)
+        alpha_body_values.append(alpha_body)
+        beta_body_values.append(beta_body)
+        CX_values.append(coeff["CX"])
+        CY_values.append(coeff["CY"])
+        CZ_values.append(coeff["CZ"])
+        CL_values.append(coeff["CL"])
+        CD_values.append(coeff["CD"])
+        CS_values.append(coeff["CS"])
+        gust_x_values.append(gust_body_velocity[0])
+        gust_y_values.append(gust_body_velocity[1])
+        gust_z_values.append(gust_body_velocity[2])
+        beta_g_values.append(gust_body_velocity[1] / Vref)
+        u_air_values.append(coeff["u_air"])
+        v_air_values.append(coeff["v_air"])
+        w_air_values.append(coeff["w_air"])
+
+    history["V"] = V_values
+    history["alpha"] = alpha_values
+    history["beta"] = beta_values
+    history["V_body"] = V_body_values
+    history["alpha_body"] = alpha_body_values
+    history["beta_body"] = beta_body_values
+    history["u_air"] = u_air_values
+    history["v_air"] = v_air_values
+    history["w_air"] = w_air_values
+    history["gust_velocity_x"] = gust_x_values
+    history["gust_velocity_y"] = gust_y_values
+    history["gust_velocity_z"] = gust_z_values
+    history["beta_g"] = beta_g_values
+    history["CX"] = CX_values
+    history["CY"] = CY_values
+    history["CZ"] = CZ_values
+    history["CL"] = CL_values
+    history["CD"] = CD_values
+    history["CS"] = CS_values
+    history["phi_dot"] = phidot_values
+    history["phat"] = phat_values
+    history["qhat"] = qhat_values
+    history["rhat"] = rhat_values
+    history["delta_e"] = delta_e_values
+    history["delta_a"] = controls["delta_a"]
+    history["delta_r"] = controls["delta_r"]
+    history["thrust"] = thrust_used
+    history["phi_delta"] = history["phi"] - float(phi0)
+    history.attrs.update({
+        "simulation_source": "6dof_crosswind_1_cosine_gust_from_stab",
+        "stab_path": str(stab_path),
+        "mass": float(mass),
+        "Ixx": float(Ixx),
+        "Iyy": float(Iyy),
+        "Izz": float(Izz),
+        "Ixz": float(Ixz),
+        "rho": rho_used,
+        "Sref": float(stab.Sref),
+        "Cref": float(stab.Cref),
+        "Bref": float(stab.Bref),
+        "control_columns": control_columns,
+        "delta_e0": delta_e0,
+        "delta_e": float(delta_e_values[0]) if delta_e_values else delta_e0,
+        "delta_a": controls["delta_a"],
+        "delta_r": controls["delta_r"],
+        "trim_elevator": bool(delta_e is None and trim_elevator),
+        "theta_hold": bool(theta_hold),
+        "theta_ref": theta_reference,
+        "theta_hold_kp": float(theta_hold_kp),
+        "theta_hold_kq": float(theta_hold_kq),
+        "delta_e_min": None if delta_e_min is None else float(delta_e_min),
+        "delta_e_max": None if delta_e_max is None else float(delta_e_max),
+        "thrust": thrust_used,
+        "trim_thrust": bool(thrust is None and trim_thrust),
+        "gust_Uds": float(Uds),
+        "gust_H": float(H),
+        "gust_start_time": float(gust_start_time),
+        "gust_end_time": float(gust_start_time) + gust_duration,
+        "gust_duration": gust_duration,
+        "gust_body_axis": gust_body_axis,
+        "gust_reference_V": Vref,
+        "gust_beta_peak": float(Uds) / Vref,
+    })
+    return history
+
+def _history_peak(history: pd.DataFrame, column: str) -> tuple[float, float, float]:
+    values = history[column].to_numpy(dtype=float)
+    if len(values) == 0 or np.all(np.isnan(values)):
+        return math.nan, math.nan, math.nan
+    index = int(np.nanargmax(np.abs(values)))
+    return float(values[index]), float(abs(values[index])), float(history["time"].iloc[index])
+
+def calculate_crosswind_gust_response_metrics(
+    history: pd.DataFrame,
+    *,
+    phi0: float | None = None,
+    Vref: float | None = None,
+    Bref: float | None = None,
+) -> dict[str, Any]:
+    """Calculate compact response metrics from a crosswind-gust 6DOF history."""
+    for column in ("time", "phi", "beta", "p", "r", "phat", "rhat"):
+        if column not in history.columns:
+            raise KeyError(f"history is missing required column: {column!r}")
+
+    time_values = history["time"].to_numpy(dtype=float)
+    if len(time_values) < 2 or float(time_values[-1]) <= float(time_values[0]):
+        raise ValueError("history must contain at least two increasing time samples.")
+
+    phi_reference = float(history["phi"].iloc[0] if phi0 is None else phi0)
+    V_used = float(history.attrs.get("gust_reference_V", Vref if Vref is not None else history["V"].iloc[0]))
+    Bref_used = float(Bref if Bref is not None else history.attrs.get("Bref", history.attrs.get("gust_Bref", np.nan)))
+    if not math.isfinite(Bref_used) and "phat" in history.columns and "p" in history.columns:
+        Bref_used = math.nan
+
+    Uds = float(history.attrs.get("gust_Uds", np.nan))
+    H = float(history.attrs.get("gust_H", np.nan))
+    gust_start = float(history.attrs.get("gust_start_time", time_values[0]))
+    gust_end = float(history.attrs.get("gust_end_time", time_values[-1]))
+    beta_g_peak = float(history.attrs.get("gust_beta_peak", Uds / V_used if math.isfinite(Uds) and V_used > 0.0 else np.nan))
+    beta_scale = abs(beta_g_peak) if math.isfinite(beta_g_peak) and abs(beta_g_peak) > 1.0e-14 else math.nan
+
+    phi_delta = history["phi"].to_numpy(dtype=float) - phi_reference
+    phi_delta_final = float(phi_delta[-1])
+    phi_delta_at_gust_end = float(np.interp(gust_end, time_values, phi_delta))
+    max_phi_index = int(np.nanargmax(np.abs(phi_delta)))
+    max_phi_delta = float(phi_delta[max_phi_index])
+    max_abs_phi_delta = float(abs(max_phi_delta))
+    max_phi_time = float(time_values[max_phi_index])
+
+    beta_peak, beta_peak_abs, beta_peak_time = _history_peak(history, "beta")
+    p_peak, p_peak_abs, p_peak_time = _history_peak(history, "p")
+    r_peak, r_peak_abs, r_peak_time = _history_peak(history, "r")
+    phat_peak, phat_peak_abs, phat_peak_time = _history_peak(history, "phat")
+    rhat_peak, rhat_peak_abs, rhat_peak_time = _history_peak(history, "rhat")
+
+    result: dict[str, Any] = {
+        "crosswind_gust_success": True,
+        "crosswind_gust_message": "",
+        "crosswind_gust_Uds": Uds,
+        "crosswind_gust_H": H,
+        "crosswind_gust_start_time": gust_start,
+        "crosswind_gust_end_time": gust_end,
+        "crosswind_gust_duration": float(history.attrs.get("gust_duration", gust_end - gust_start)),
+        "crosswind_gust_reference_V": V_used,
+        "crosswind_gust_beta_peak_input": beta_g_peak,
+        "crosswind_gust_phi0": phi_reference,
+        "crosswind_gust_t_start": float(time_values[0]),
+        "crosswind_gust_t_final": float(time_values[-1]),
+        "crosswind_gust_phi_final": float(history["phi"].iloc[-1]),
+        "crosswind_gust_phi_delta_final": phi_delta_final,
+        "crosswind_gust_phi_delta_at_gust_end": phi_delta_at_gust_end,
+        "crosswind_gust_max_phi_delta": max_phi_delta,
+        "crosswind_gust_max_abs_phi_delta": max_abs_phi_delta,
+        "crosswind_gust_max_abs_phi_delta_time": max_phi_time,
+        "crosswind_gust_peak_beta": beta_peak,
+        "crosswind_gust_max_abs_beta": beta_peak_abs,
+        "crosswind_gust_max_abs_beta_time": beta_peak_time,
+        "crosswind_gust_peak_p": p_peak,
+        "crosswind_gust_max_abs_p": p_peak_abs,
+        "crosswind_gust_max_abs_p_time": p_peak_time,
+        "crosswind_gust_peak_r": r_peak,
+        "crosswind_gust_max_abs_r": r_peak_abs,
+        "crosswind_gust_max_abs_r_time": r_peak_time,
+        "crosswind_gust_peak_phat": phat_peak,
+        "crosswind_gust_max_abs_phat": phat_peak_abs,
+        "crosswind_gust_max_abs_phat_time": phat_peak_time,
+        "crosswind_gust_peak_rhat": rhat_peak,
+        "crosswind_gust_max_abs_rhat": rhat_peak_abs,
+        "crosswind_gust_max_abs_rhat_time": rhat_peak_time,
+        "crosswind_gust_bank_metric_abs_per_beta_g": math.nan,
+        "crosswind_gust_bank_metric_final_per_beta_g": math.nan,
+        "crosswind_gust_bank_metric_at_gust_end_per_beta_g": math.nan,
+        "crosswind_gust_phat_metric_abs_per_beta_g": math.nan,
+        "crosswind_gust_rhat_metric_abs_per_beta_g": math.nan,
+    }
+    if math.isfinite(beta_scale):
+        result["crosswind_gust_bank_metric_abs_per_beta_g"] = max_abs_phi_delta / beta_scale
+        result["crosswind_gust_phat_metric_abs_per_beta_g"] = phat_peak_abs / beta_scale
+        result["crosswind_gust_rhat_metric_abs_per_beta_g"] = rhat_peak_abs / beta_scale
+        result["crosswind_gust_bank_metric_final_per_beta_g"] = phi_delta_final / beta_g_peak
+        result["crosswind_gust_bank_metric_at_gust_end_per_beta_g"] = phi_delta_at_gust_end / beta_g_peak
+    if math.isfinite(Bref_used):
+        result["crosswind_gust_metric_Bref"] = Bref_used
+    return result
 
 def write_6dof_history_csv(history: pd.DataFrame, csv_path: str | Path) -> Path:
     csv_path = Path(csv_path)
@@ -1116,7 +1563,6 @@ def simulate_reduced_lateral_response_from_stab(
         }
     )
     return history
-
 
 def plot_vv_gamma_row_6dof_vs_reduced_response(
     metrics: pd.DataFrame | str | Path,

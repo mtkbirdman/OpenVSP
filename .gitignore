@@ -180,6 +180,7 @@ cython_debug/
 *.taglist
 *.lnk
 *.group.*
+
 VSPU Tutorial Models
 99_old
 test

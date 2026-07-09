@@ -14,10 +14,14 @@ The main workflow is intentionally split into two readable stages:
        tip_deflection + semispan -> analytic elliptical-planform weighted
        Gamma_eff, then .stab parsing -> stability metrics -> linear finite-time lateral response
        -> 6DOF signed-delta-phi roll-response metric ->
+       crosswind-gust short-time roll-path metric ->
        optional level/gliding turn-trim metrics
 
-Angles are radians in the numerical/flight-mechanics functions and degrees only
-when values are written into OpenVSP wing-section parameters.
+Angles are radians in the numerical/flight-mechanics functions.  The final
+postprocess_vv_gamma_cases() output DataFrame/CSV is a plotting and review
+artifact: ordinary angles are written in degrees and ordinary angular rates / turn
+rates are written in degrees per second.  Stability derivatives, reduced rates,
+gains, and ratios remain in their original nondimensional or per-radian form.
 """
 
 from __future__ import annotations
@@ -739,34 +743,38 @@ def calculate_stab_basic_metrics(
     return metrics
 
 def _flatten_turn_trim(trim: Mapping[str, Any]) -> dict[str, Any]:
+    passed = bool(trim.get("passed", False))
     result: dict[str, Any] = {
-        "turn_trim_passed": bool(trim.get("passed", False)),
+        "turn_trim_passed": passed,
         "turn_trim_message": trim.get("message", ""),
         "turn_trim_max_abs_residual": trim.get("max_abs_residual", np.nan),
         "turn_trim_cost": trim.get("cost", np.nan),
         "turn_trim_nfev": trim.get("nfev", np.nan),
     }
+
+    # Keep raw solver outputs for debugging even when the trim did not pass.
+    # The direct turn_trim_* columns below are the plotting/review values and
+    # are therefore populated only for accepted trim solutions.
     for source_name in ("solution", "derived", "coefficients", "residuals"):
         for key, value in (trim.get(source_name, {}) or {}).items():
             if isinstance(value, (int, float, np.floating, np.integer, bool, str)) or value is None:
                 result[f"turn_trim_{source_name}_{key}"] = value
     if "height_residual" in trim:
         result["turn_trim_height_residual"] = trim["height_residual"]
+
     solution = trim.get("solution", {}) or {}
-    turn_trim_beta = solution.get("beta", np.nan)
-    turn_trim_delta_r = solution.get("delta_r", np.nan)
-    result["turn_trim_beta"] = turn_trim_beta
-    result["turn_trim_delta_r"] = turn_trim_delta_r
-    result["turn_trim_Omega"] = solution.get("Omega", np.nan)
+    for parameter_name in ("V", "alpha", "beta", "phi", "theta", "Omega", "delta_e", "delta_a", "delta_r", "T"):
+        result[f"turn_trim_{parameter_name}"] = solution.get(parameter_name, np.nan) if passed else np.nan
 
     result["turn_trim_delta_r_per_beta"] = np.nan
-    try:
-        beta_value = float(turn_trim_beta)
-        delta_r_value = float(turn_trim_delta_r)
-        if math.isfinite(beta_value) and math.isfinite(delta_r_value) and abs(beta_value) >= 1.0e-14:
-            result["turn_trim_delta_r_per_beta"] = delta_r_value / beta_value
-    except (TypeError, ValueError):
-        pass
+    if passed:
+        try:
+            beta_value = float(solution.get("beta", np.nan))
+            delta_r_value = float(solution.get("delta_r", np.nan))
+            if math.isfinite(beta_value) and math.isfinite(delta_r_value) and abs(beta_value) >= 1.0e-14:
+                result["turn_trim_delta_r_per_beta"] = delta_r_value / beta_value
+        except (TypeError, ValueError):
+            pass
     return result
 
 def calculate_turn_trim_metrics_from_stab(
@@ -1079,6 +1087,111 @@ def run_vv_gamma_chart(*args, **kwargs) -> pd.DataFrame:
         )
     return run_vv_wtip_stability_sweep(*args, **kwargs)
 
+def convert_vv_gamma_postprocess_output_units(result: pd.DataFrame) -> pd.DataFrame:
+    """Convert the final Vv-Gamma postprocess table to display units.
+
+    All solvers and response calculations return angles in rad and angular rates
+    in rad/s.  The postprocess table is the human-facing CSV/plotting artifact,
+    so this final step converts only ordinary angles and ordinary angular rates.
+
+    Deliberately unchanged:
+    - stability derivatives such as Cl_beta, Cn_r, CL_Alpha, CMl_Beta
+    - reduced rates such as p_hat, q_hat, r_hat, phat, qhat, rhat
+    - gains and ratios such as *_per_delta_r, *_per_beta, finite-time metrics
+    - Taylor coefficients and nondimensional response coefficients
+    """
+
+    result = result.copy()
+
+    # Explicit *_deg columns are already in degrees.  Explicit *_rad columns are
+    # removed from the final table so the CSV contains only the degree version of
+    # the same Gamma_eff quantities.
+    result = result.drop(
+        columns=["Gamma_eff_rad", "Gamma_eff_rigid_rad", "Gamma_eff_elastic_rad"],
+        errors="ignore",
+    )
+
+    angle_columns_from_rad = [
+        "alpha",
+        "beta",
+        "phi",
+        "theta",
+        "psi",
+        "delta_e",
+        "delta_a",
+        "delta_r",
+        "linear_delta_r",
+        "linear_target_delta_phi",
+        "linear_phi0",
+        "linear_phi_final",
+        "linear_phi_delta_final",
+        "linear_beta_final",
+        "sixdof_delta_r",
+        "sixdof_target_delta_phi",
+        "sixdof_phi0",
+        "sixdof_phi_final",
+        "sixdof_phi_delta_final",
+        "sixdof_delta_e_initial",
+        "crosswind_gust_beta_peak_input",
+        "crosswind_gust_phi0",
+        "crosswind_gust_phi_final",
+        "crosswind_gust_phi_delta_final",
+        "crosswind_gust_phi_delta_at_gust_end",
+        "crosswind_gust_max_phi_delta",
+        "crosswind_gust_max_abs_phi_delta",
+        "crosswind_gust_peak_beta",
+        "crosswind_gust_max_abs_beta",
+        "crosswind_gust_delta_e_initial",
+        "crosswind_gust_delta_a",
+        "crosswind_gust_delta_r",
+        "turn_trim_fixed_phi",
+        "turn_trim_fixed_delta_a",
+        "turn_trim_alpha",
+        "turn_trim_beta",
+        "turn_trim_phi",
+        "turn_trim_theta",
+        "turn_trim_delta_e",
+        "turn_trim_delta_a",
+        "turn_trim_delta_r",
+        "turn_trim_solution_alpha",
+        "turn_trim_solution_beta",
+        "turn_trim_solution_phi",
+        "turn_trim_solution_theta",
+        "turn_trim_solution_delta_e",
+        "turn_trim_solution_delta_a",
+        "turn_trim_solution_delta_r",
+    ]
+    angular_rate_columns_from_rad_s = [
+        "p",
+        "q",
+        "r",
+        "Omega",
+        "phi_dot",
+        "linear_roll_response_phi_rate",
+        "linear_roll_response_reference_phi_rate_to_t_final",
+        "sixdof_roll_response_phi_rate",
+        "sixdof_roll_response_reference_phi_rate_to_t_final",
+        "crosswind_gust_peak_p",
+        "crosswind_gust_max_abs_p",
+        "crosswind_gust_peak_r",
+        "crosswind_gust_max_abs_r",
+        "turn_trim_Omega",
+        "turn_trim_solution_Omega",
+        "turn_trim_derived_p",
+        "turn_trim_derived_q",
+        "turn_trim_derived_r",
+    ]
+
+    for column in angle_columns_from_rad:
+        if column in result.columns:
+            result[column] = np.degrees(result[column].astype(float))
+
+    for column in angular_rate_columns_from_rad_s:
+        if column in result.columns:
+            result[column] = np.degrees(result[column].astype(float))
+
+    return result
+
 def postprocess_vv_gamma_cases(
     results: pd.DataFrame | str | os.PathLike,
     *,
@@ -1123,11 +1236,27 @@ def postprocess_vv_gamma_cases(
     turn_trim_residual_tol: float = 1.0e-6,
     write_6dof_history: bool = False,
     plot_6dof_history: bool = False,
+    run_crosswind_gust_6dof: bool = False,
+    crosswind_gust_Uds: float | None = None,
+    crosswind_gust_H: float | None = None,
+    crosswind_gust_t_final: float | None = None,
+    crosswind_gust_start_time: float = 0.0,
+    crosswind_gust_delta_a: float = 0.0,
+    crosswind_gust_delta_e: float | None = None,
+    crosswind_gust_delta_r: float = 0.0,
+    write_crosswind_gust_history: bool = False,
+    plot_crosswind_gust_history: bool = False,
     history_output_dir: str | os.PathLike | None = None,
     output_csv_path: str | os.PathLike | None = None,
     verbose: int | bool = 0,
 ) -> pd.DataFrame:
-    """Add analytic Gamma_eff and .stab-based metrics to a completed sweep table."""
+    """Add Gamma_eff, .stab metrics, response metrics, and turn-trim metrics.
+
+    Internal calculations stay in rad and rad/s. The returned DataFrame and
+    optional CSV are converted at the end: angles are deg, angular rates and
+    turn rates are deg/s, while stability derivatives, reduced rates, gains,
+    and ratios are left unchanged.
+    """
 
     if turn_trim_mode not in {"none", "level", "gliding"}:
         raise ValueError("turn_trim_mode must be 'none', 'level', or 'gliding'.")
@@ -1153,19 +1282,24 @@ def postprocess_vv_gamma_cases(
     if gamma_semispan_value <= 0.0:
         raise ValueError("gamma_semispan must be positive.")
 
-    needs_mass = bool(calculate_linear_lateral_response or run_6dof or turn_trim_mode != "none")
+    needs_mass = bool(calculate_linear_lateral_response or run_6dof or run_crosswind_gust_6dof or turn_trim_mode != "none")
     if needs_mass and mass is None:
-        raise ValueError("mass is required when linear response, 6DOF, or turn-trim metrics are enabled.")
-    if calculate_linear_lateral_response or run_6dof:
+        raise ValueError("mass is required when linear response, 6DOF, gust 6DOF, or turn-trim metrics are enabled.")
+    if calculate_linear_lateral_response or run_6dof or run_crosswind_gust_6dof:
         if inertia is None:
-            raise ValueError("inertia is required when linear response or 6DOF metrics are enabled.")
+            raise ValueError("inertia is required when linear response, 6DOF, or gust 6DOF metrics are enabled.")
         for key in ("Ixx", "Izz"):
             if key not in inertia:
                 raise KeyError(f"inertia is missing required key: {key}")
-    if run_6dof and "Iyy" not in inertia:
+    if (run_6dof or run_crosswind_gust_6dof) and "Iyy" not in inertia:
         raise KeyError("inertia is missing required key: Iyy")
+    if run_crosswind_gust_6dof:
+        if crosswind_gust_Uds is None:
+            raise ValueError("crosswind_gust_Uds is required when run_crosswind_gust_6dof=True.")
+        if crosswind_gust_H is None:
+            raise ValueError("crosswind_gust_H is required when run_crosswind_gust_6dof=True.")
 
-    rudder_gain = _import_roll_rudder_gain() if (calculate_linear_lateral_response or run_6dof) else None
+    rudder_gain = _import_roll_rudder_gain() if (calculate_linear_lateral_response or run_6dof or run_crosswind_gust_6dof) else None
     Ixx = float(inertia["Ixx"]) if inertia is not None else math.nan
     Iyy = float(inertia.get("Iyy", math.nan)) if inertia is not None else math.nan
     Izz = float(inertia["Izz"]) if inertia is not None else math.nan
@@ -1191,6 +1325,7 @@ def postprocess_vv_gamma_cases(
         output_row["Gamma_eff_semispan"] = gamma_semispan_value
         output_row["Gamma_eff_n_span"] = int(gamma_n_span)
         output_row["simple_turn_trim_delta_r_per_beta"] = np.nan
+        output_row["crosswind_gust_roll_metric"] = np.nan
         if calculate_linear_lateral_response:
             output_row.update({
                 "linear_response_source": "not_evaluated",
@@ -1301,14 +1436,61 @@ def postprocess_vv_gamma_cases(
                 "sixdof_delta_e_initial": np.nan,
                 "sixdof_thrust": np.nan,
             })
+        if run_crosswind_gust_6dof:
+            output_row.update({
+                "crosswind_gust_success": False,
+                "crosswind_gust_message": "not_evaluated",
+                "crosswind_gust_Uds": np.nan if crosswind_gust_Uds is None else float(crosswind_gust_Uds),
+                "crosswind_gust_H": np.nan if crosswind_gust_H is None else float(crosswind_gust_H),
+                "crosswind_gust_start_time": float(crosswind_gust_start_time),
+                "crosswind_gust_end_time": np.nan,
+                "crosswind_gust_duration": np.nan,
+                "crosswind_gust_reference_V": np.nan,
+                "crosswind_gust_beta_peak_input": np.nan,
+                "crosswind_gust_phi0": float(phi0),
+                "crosswind_gust_t_start": np.nan,
+                "crosswind_gust_t_final": np.nan if crosswind_gust_t_final is None else float(crosswind_gust_t_final),
+                "crosswind_gust_phi_final": np.nan,
+                "crosswind_gust_phi_delta_final": np.nan,
+                "crosswind_gust_phi_delta_at_gust_end": np.nan,
+                "crosswind_gust_max_phi_delta": np.nan,
+                "crosswind_gust_max_abs_phi_delta": np.nan,
+                "crosswind_gust_max_abs_phi_delta_time": np.nan,
+                "crosswind_gust_max_abs_beta": np.nan,
+                "crosswind_gust_max_abs_beta_time": np.nan,
+                "crosswind_gust_max_abs_p": np.nan,
+                "crosswind_gust_max_abs_p_time": np.nan,
+                "crosswind_gust_max_abs_r": np.nan,
+                "crosswind_gust_max_abs_r_time": np.nan,
+                "crosswind_gust_max_abs_phat": np.nan,
+                "crosswind_gust_max_abs_phat_time": np.nan,
+                "crosswind_gust_max_abs_rhat": np.nan,
+                "crosswind_gust_max_abs_rhat_time": np.nan,
+                "crosswind_gust_bank_metric_abs_per_beta_g": np.nan,
+                "crosswind_gust_bank_metric_final_per_beta_g": np.nan,
+                "crosswind_gust_bank_metric_at_gust_end_per_beta_g": np.nan,
+                "crosswind_gust_phat_metric_abs_per_beta_g": np.nan,
+                "crosswind_gust_rhat_metric_abs_per_beta_g": np.nan,
+                "crosswind_gust_delta_e_initial": np.nan,
+                "crosswind_gust_delta_a": float(crosswind_gust_delta_a),
+                "crosswind_gust_delta_r": float(crosswind_gust_delta_r),
+                "crosswind_gust_thrust": np.nan,
+            })
         if turn_trim_mode != "none":
             output_row.update({
                 "turn_trim_mode": turn_trim_mode,
                 "turn_trim_passed": False,
+                "turn_trim_V": np.nan,
+                "turn_trim_alpha": np.nan,
                 "turn_trim_beta": np.nan,
-                "turn_trim_delta_r": np.nan,
-                "turn_trim_delta_r_per_beta": np.nan,
+                "turn_trim_phi": np.nan,
+                "turn_trim_theta": np.nan,
                 "turn_trim_Omega": np.nan,
+                "turn_trim_delta_e": np.nan,
+                "turn_trim_delta_a": np.nan,
+                "turn_trim_delta_r": np.nan,
+                "turn_trim_T": np.nan,
+                "turn_trim_delta_r_per_beta": np.nan,
             })
 
         stab_path_value = row.get(stab_path_column, "")
@@ -1331,6 +1513,20 @@ def postprocess_vv_gamma_cases(
             output_row.update(gamma_eff)
             basic = calculate_stab_basic_metrics(stab_path, vv=row.get("Vv", None), tip_deflection=row.get("tip_deflection", None), control_map=control_map, verbose=verbose)
             output_row.update(basic)
+
+            # Short-time crosswind-gust roll-path proxy from the article:
+            #   K = -[(m / (rho S b)) Cl_beta + Cl_rhat Cn_beta]
+            # It is a static .stab-derived indicator, so it does not require a
+            # time-marching gust simulation.  Positive values mean the two
+            # retained paths tend to increase the initial gust roll response in
+            # the sign convention used by the article.
+            if mass is not None:
+                rho_used = float(basic["Rho"] if rho is None else rho)
+                output_row["crosswind_gust_roll_metric"] = -(
+                    float(mass) / (rho_used * float(basic["Sref"]) * float(basic["Bref"])) * float(basic["Cl_beta"])
+                    + float(basic["Cl_r"]) * float(basic["Cn_beta"])
+                )
+
             if calculate_linear_lateral_response:
                 linear = rudder_gain.calculate_linear_lateral_response_metrics_from_stab(
                     stab_path, mass=float(mass), Ixx=Ixx, Izz=Izz, Ixz=Ixz,
@@ -1373,6 +1569,40 @@ def postprocess_vv_gamma_cases(
                     if plot_6dof_history:
                         rudder_gain.plot_6dof_history(history, plot_path=history_plot_path, show=False, degrees=True)
                         output_row["sixdof_history_plot_path"] = str(history_plot_path)
+            if run_crosswind_gust_6dof:
+                gust_history = rudder_gain.simulate_6dof_crosswind_gust_from_stab(
+                    stab_path, mass=float(mass), Ixx=Ixx, Iyy=Iyy, Izz=Izz, Ixz=Ixz,
+                    Uds=float(crosswind_gust_Uds), H=float(crosswind_gust_H),
+                    t_final=None if crosswind_gust_t_final is None else float(crosswind_gust_t_final),
+                    control_map=control_map,
+                    delta_a=float(crosswind_gust_delta_a),
+                    delta_e=crosswind_gust_delta_e,
+                    delta_r=float(crosswind_gust_delta_r),
+                    trim_elevator=trim_elevator,
+                    theta_hold=theta_hold, theta_ref=theta_ref,
+                    theta_hold_kp=float(theta_hold_kp), theta_hold_kq=float(theta_hold_kq),
+                    delta_e_min=delta_e_min, delta_e_max=delta_e_max,
+                    thrust=thrust, trim_thrust=trim_thrust, g=float(g), rho=rho,
+                    phi0=float(phi0), theta0=theta0, psi0=float(psi0),
+                    gust_start_time=float(crosswind_gust_start_time),
+                    max_step=max_step, rtol=rtol, atol=atol,
+                )
+                gust_response = rudder_gain.calculate_crosswind_gust_response_metrics(
+                    gust_history, phi0=float(phi0), Vref=float(basic["Vinf"]), Bref=float(basic["Bref"])
+                )
+                output_row.update(gust_response)
+                output_row["crosswind_gust_delta_e_initial"] = float(gust_history["delta_e"].iloc[0]) if "delta_e" in gust_history.columns else math.nan
+                output_row["crosswind_gust_delta_a"] = float(gust_history["delta_a"].iloc[0]) if "delta_a" in gust_history.columns else float(crosswind_gust_delta_a)
+                output_row["crosswind_gust_delta_r"] = float(gust_history["delta_r"].iloc[0]) if "delta_r" in gust_history.columns else float(crosswind_gust_delta_r)
+                output_row["crosswind_gust_thrust"] = float(gust_history["thrust"].iloc[0]) if "thrust" in gust_history.columns else math.nan
+                if history_output_dir_path is not None:
+                    gust_csv_path = history_output_dir_path / f"{case_name}_crosswind_gust_6dof_history.csv"
+                    gust_plot_path = history_output_dir_path / f"{case_name}_crosswind_gust_6dof_history.png"
+                    if write_crosswind_gust_history:
+                        output_row["crosswind_gust_history_csv_path"] = str(rudder_gain.write_6dof_history_csv(gust_history, gust_csv_path))
+                    if plot_crosswind_gust_history:
+                        rudder_gain.plot_6dof_history(gust_history, plot_path=gust_plot_path, show=False, degrees=True)
+                        output_row["crosswind_gust_history_plot_path"] = str(gust_plot_path)
             if turn_trim_mode != "none":
                 try:
                     output_row.update(calculate_turn_trim_metrics_from_stab(
@@ -1386,6 +1616,16 @@ def postprocess_vv_gamma_cases(
                     output_row.update({
                         "turn_trim_mode": turn_trim_mode,
                         "turn_trim_passed": False,
+                        "turn_trim_V": np.nan,
+                        "turn_trim_alpha": np.nan,
+                        "turn_trim_beta": np.nan,
+                        "turn_trim_phi": np.nan,
+                        "turn_trim_theta": np.nan,
+                        "turn_trim_Omega": np.nan,
+                        "turn_trim_delta_e": np.nan,
+                        "turn_trim_delta_a": np.nan,
+                        "turn_trim_delta_r": np.nan,
+                        "turn_trim_T": np.nan,
                         "turn_trim_delta_r_per_beta": np.nan,
                         "turn_trim_error": repr(exc),
                     })
@@ -1396,6 +1636,7 @@ def postprocess_vv_gamma_cases(
         rows.append(output_row)
 
     result = pd.DataFrame(rows)
+    result = convert_vv_gamma_postprocess_output_units(result)
     if output_csv_path is not None:
         output_csv_path = Path(output_csv_path)
         output_csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1407,6 +1648,7 @@ def postprocess_vv_gamma_cases(
 # ---------------------------------------------------------------------------
 
 VV_GAMMA_LATEX_LABELS = {
+    "Gamma_eff_deg": r"$\Gamma_{\mathrm{eff}}\ [\mathrm{deg}]$",
     "CL_alpha": r"$C_{L\alpha}$",
     "Cl_beta": r"$C_{l\beta}$",
     "Cn_beta": r"$C_{n\beta}$",
@@ -1446,7 +1688,8 @@ VV_GAMMA_LATEX_LABELS = {
     "simple_K3_yawrate_beta_dihedral_damped": r"$K_{3,r\to\beta\to l}+K_{2,N\to r\to l}(\lambda_p+\lambda_r)$",
     "simple_K3_reduced": r"$K_{3,simple}$",
     "simple_turn_rate_full": r"$K_{turn,full}=\frac{1}{\mu_I I_x}C_{l\delta_r}+\frac{\mu_Y}{\mu_I I_x}C_{l\beta}C_{Y\delta_r}+(C_{l\hat{r}}-C_{l\beta})C_{n\delta_r}$",
-    "simple_turn_rate": r"$K_{turn}=(C_{l\hat{r}}-C_{n_\beta})C_{n\delta_r}$",
+    "simple_turn_rate": r"$K_{turn}=(C_{l\hat{r}}-C_{l\beta})C_{n\delta_r}$",
+    "crosswind_gust_roll_metric": r"$K_{gust,roll}=-\left(\frac{m}{\rho S b}C_{l\beta}+C_{l\hat{r}}C_{n\beta}\right)$",
     "linear_tau_final": r"$\tau_f$",
     "linear_tau_reach": r"$\tau_{reach}$",
     "initial_beta_prime_per_delta_r": r"$\beta\prime(0)/\delta_r$",
@@ -1459,13 +1702,26 @@ VV_GAMMA_LATEX_LABELS = {
     "initial_mu_inertia": r"$\mu_I$",
     "sixdof_roll_response_phi_rate_per_delta_r": r"$\{(\Delta\phi/\Delta t)/\delta_r\}_{6DOF}$",
     "sixdof_roll_response_fraction_of_target": r"$(\phi_f-\phi_0)/\Delta\phi_{target}$",
-    "turn_trim_beta": r"$\beta_{trim}$",
-    "turn_trim_delta_r": r"$\delta_{r,trim}$",
+    "turn_trim_V": r"$V_{trim}$",
+    "turn_trim_alpha": r"$\alpha_{trim}\ [\mathrm{deg}]$",
+    "turn_trim_beta": r"$\beta_{trim}\ [\mathrm{deg}]$",
+    "turn_trim_phi": r"$\phi_{trim}\ [\mathrm{deg}]$",
+    "turn_trim_theta": r"$\theta_{trim}\ [\mathrm{deg}]$",
+    "turn_trim_Omega": r"$\Omega_{trim}\ [\mathrm{deg/s}]$",
+    "turn_trim_delta_e": r"$\delta_{e,trim}\ [\mathrm{deg}]$",
+    "turn_trim_delta_a": r"$\delta_{a,trim}\ [\mathrm{deg}]$",
+    "turn_trim_delta_r": r"$\delta_{r,trim}\ [\mathrm{deg}]$",
+    "turn_trim_T": r"$T_{trim}$",
     "turn_trim_delta_r_per_beta": r"$\left(\delta_r/\beta\right)_{\mathrm{trim}}$",
-    "turn_trim_Omega": r"$\Omega_{trim}$",
-    "turn_trim_solution_beta": r"$\beta$",
-    "turn_trim_solution_delta_r": r"$\delta_r$",
-    "turn_trim_solution_Omega": r"$\Omega$",
+    "turn_trim_solution_beta": r"$\beta\ [\mathrm{deg}]$",
+    "turn_trim_solution_delta_r": r"$\delta_r\ [\mathrm{deg}]$",
+    "turn_trim_solution_Omega": r"$\Omega\ [\mathrm{deg/s}]$",
+    "linear_delta_r": r"$\delta_r\ [\mathrm{deg}]$",
+    "linear_target_delta_phi": r"$\Delta\phi_{target}\ [\mathrm{deg}]$",
+    "linear_roll_response_phi_rate": r"$(\Delta\phi/\Delta t)_{linear}\ [\mathrm{deg/s}]$",
+    "sixdof_delta_r": r"$\delta_r\ [\mathrm{deg}]$",
+    "sixdof_target_delta_phi": r"$\Delta\phi_{target}\ [\mathrm{deg}]$",
+    "sixdof_roll_response_phi_rate": r"$(\Delta\phi/\Delta t)_{6DOF}\ [\mathrm{deg/s}]$",
     "turn_trim_derived_sink_rate": r"$w_{\mathrm{sink}}$",
     "turn_trim_max_abs_residual": r"$\max|r_i|$",
 }
