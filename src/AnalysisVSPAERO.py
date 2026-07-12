@@ -1,7 +1,3 @@
-# OCR_NOTE: indentation-fixed version from scanned/OCR source.
-# OCR_NOTE: source files: AnalysisVSPAERO.ocr.py and 20260703212423_001-merged-pages-deleted-pages-1.pdf
-# OCR_NOTE: OpenVSP execution was not performed; only static syntax checks were performed.
-
 # AnalysisVSPAERO.py
 import os
 import numpy as np

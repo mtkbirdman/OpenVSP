@@ -1,7 +1,3 @@
-# OCR_NOTE: The scanned PDF begins with the trailing part of another function.
-# OCR_NOTE: That incomplete fragment is preserved in ocr_raw.py but commented out here
-# OCR_NOTE: so that this file can be parsed as a standalone Python module.
-
 """
 Rudder roll-rate gain validation utilities.
 
@@ -186,7 +182,7 @@ def calculate_quasi_steady_rudder_roll_gain_from_stab(
         "rho": None if stab.rho0 is None else float(stab.rho0),
     }
 
-def calculate_linear_lateral_response_metrics_from_stab(
+def calculate_linear_lateral_response_indices_from_stab(
     stab_path: str | Path,
     *,
     mass: float,
@@ -214,8 +210,8 @@ def calculate_linear_lateral_response_metrics_from_stab(
         x = [beta, phat, rhat, phi]
 
     with nondimensional time tau = 2 V / b * t.  It is the linear counterpart
-    of the finite-time 6DOF signed-delta-phi metric used in the Vv-Gamma
-    workflow.  The same function also returns the initial derivative metrics
+    of the finite-time 6DOF signed-delta-phi index used in the Vv-Gamma
+    workflow.  The same function also returns the initial derivative indices
     because they are simply the first Taylor coefficients of this linear model.
     """
     stab = read_vspaero_stab(stab_path)
@@ -230,7 +226,7 @@ def calculate_linear_lateral_response_metrics_from_stab(
 
     V = float(stab.V0)
     if V <= 0.0:
-        raise ValueError("The .stab file must contain a positive Vinf for linear lateral response metrics.")
+        raise ValueError("The .stab file must contain a positive Vinf for linear lateral response indices.")
     mass = float(mass)
     if mass <= 0.0:
         raise ValueError("mass must be positive.")
@@ -441,13 +437,13 @@ def calculate_linear_lateral_response_metrics_from_stab(
     beta_final, phat_final, rhat_final, phi_final = [float(value) for value in solution.y[:, -1]]
     tau_actual = float(solution.t[-1])
     t_actual = tau_actual * second_per_tau
-    reference_metric = phi_final / tau_actual / delta_r
+    reference_index = phi_final / tau_actual / delta_r
     reference_phi_rate = phi_final / t_actual
 
     reached = bool(solution.t_events and len(solution.t_events[0]) > 0)
     tau_reach = math.nan
     t_reach = math.nan
-    target_metric = math.nan
+    target_index = math.nan
     target_phi_rate = math.nan
     target_phi_rate_per_delta_r = math.nan
     error = "target_delta_phi_not_reached"
@@ -457,7 +453,7 @@ def calculate_linear_lateral_response_metrics_from_stab(
         if tau_reach <= 0.0:
             error = "target_reached_at_or_before_start"
         else:
-            target_metric = target_delta_phi / tau_reach / delta_r
+            target_index = target_delta_phi / tau_reach / delta_r
             target_phi_rate = target_delta_phi / t_reach
             target_phi_rate_per_delta_r = target_phi_rate / delta_r
             error = ""
@@ -478,8 +474,8 @@ def calculate_linear_lateral_response_metrics_from_stab(
         "linear_tau_final": tau_actual,
         "linear_tau_per_second": tau_per_second,
         "linear_second_per_tau": second_per_tau,
-        "linear_metric_Vinf": V,
-        "linear_metric_Bref": Bref,
+        "linear_index_Vinf": V,
+        "linear_index_Bref": Bref,
         "linear_phi0": 0.0,
         "linear_phi_final": phi_final,
         "linear_phi_delta_final": phi_final,
@@ -492,11 +488,11 @@ def calculate_linear_lateral_response_metrics_from_stab(
         "linear_dt_reach": t_reach,
         "linear_roll_response_phi_rate": target_phi_rate,
         "linear_roll_response_phi_rate_per_delta_r": target_phi_rate_per_delta_r,
-        "linear_finite_time_roll_metric": target_metric,
+        "linear_finite_time_roll_index": target_index,
         "linear_roll_response_error": error,
         "linear_roll_response_reference_phi_rate_to_t_final": reference_phi_rate,
         "linear_roll_response_reference_phi_rate_per_delta_r_to_t_final": reference_phi_rate / delta_r,
-        "linear_roll_response_metric_reference": reference_metric,
+        "linear_roll_response_index_reference": reference_index,
         "linear_roll_response_fraction_of_target": phi_final / target_delta_phi,
         "linear_taylor_source": "exact_taylor_coefficients_from_full_linear_A_B",
         "linear_taylor_K1": linear_taylor_K1,
@@ -591,15 +587,16 @@ def _linear_aero_from_stab(
     """Evaluate solver-axis aero coefficients from .stab linear derivatives.
 
     state[:3] is the aircraft velocity in solver body axes.
-    gust_body_velocity is the local atmospheric velocity in the same axes.
-    Aerodynamic alpha, beta, reduced rates, and dynamic pressure are evaluated
-    from the relative air velocity
+    gust_body_velocity is the local atmospheric velocity vector in the same
+    axes.  Aerodynamic alpha, beta, reduced rates, and dynamic pressure are
+    evaluated from the relative air velocity
 
         [u_air, v_air, w_air] = [u, v, w] - gust_body_velocity.
 
-    With a positive lateral gust v_g in +y_body, this gives beta_air roughly
-    equal to beta_body - v_g / V, matching the crosswind-gust article sign
-    convention.
+    Crosswind-facing sign conventions are handled by the caller.  In
+    simulate_6dof_crosswind_gust_from_stab(), a positive crosswind input means
+    wind from the aircraft right side and is converted to a negative
+    atmospheric y-body velocity before this function is called.
     """
     u, v, w, p, q, r = [float(value) for value in state[:6]]
     u_g, v_g, w_g = [float(value) for value in gust_body_velocity]
@@ -648,9 +645,14 @@ def one_cosine_gust_velocity(
 ) -> float:
     """Return a signed 1-cosine gust velocity at time.
 
-    Uds is the signed peak gust velocity. H is the gust-gradient distance.
-    The spatial gust coordinate is s = V * (time - start_time).  Outside
-    0 <= s <= 2H the gust velocity is zero.
+    For crosswind use, positive Uds means a gust blowing from the aircraft
+    right side toward the left side.  The returned scalar uses the same
+    positive-from-right convention.  Uds has the same length/time units as V.
+    If a Part 25 design gust is specified in EAS, convert it to the physical/TAS
+    gust velocity at the analysis density before calling this function.
+
+    H is the gust-gradient distance.  The spatial gust coordinate is
+    s = V * (time - start_time).  Outside 0 <= s <= 2H the gust velocity is zero.
     """
     H = float(H)
     V = float(V)
@@ -766,7 +768,7 @@ def simulate_6dof_rudder_step_from_stab(
 
     If stop_at_target_delta_phi=True, integration stops when phi(t) - phi0
     reaches the signed target_delta_phi. This is intended for response-time
-    metrics; leave it False when a full time history to t_final is needed.
+    indices; leave it False when a full time history to t_final is needed.
     """
     stab = read_vspaero_stab(stab_path)
     control_columns = resolve_control_columns_from_stab(stab, control_map)
@@ -993,21 +995,32 @@ def simulate_6dof_crosswind_gust_from_stab(
     psi0: float = 0.0,
     position0: Sequence[float] = (0.0, 0.0, 0.0),
     gust_start_time: float = 0.0,
-    gust_body_axis: str = "y",
     max_step: float | None = None,
     rtol: float = 1.0e-8,
     atol: float = 1.0e-10,
 ) -> pd.DataFrame:
     """Integrate a 6DOF nonlinear rigid-body model with a lateral 1-cosine gust.
 
-    The aircraft states remain the rigid-body velocities and attitudes.  The
-    gust is applied only when evaluating aerodynamic coefficients, by subtracting
-    the local atmospheric velocity from the aircraft body-axis velocity.  A
-    positive y-axis gust means atmospheric velocity in +y_body, so the effective
-    aerodynamic sideslip decreases as beta_air ~= beta_body - v_g / V.
+    The public crosswind sign convention is positive from the aircraft right
+    side.  Therefore Uds > 0 and gust_velocity_y > 0 mean wind blowing from
+    right to left, and beta_g > 0 is the corresponding positive gust sideslip.
 
-    Uds is the signed peak gust velocity.  H is the gust-gradient distance.
-    The gust runs over 0 <= s <= 2H, where s = V0 * (t - gust_start_time).
+    Solver body axes remain +x forward, +y right, +z down.  The actual local
+    atmospheric velocity used by the relative-air calculation is therefore
+
+        [0, -gust_velocity_y, 0].
+
+    The aircraft states remain the rigid-body velocities and attitudes.  The
+    gust is applied only when evaluating aerodynamic coefficients, by
+    subtracting this atmospheric velocity vector from the aircraft body-axis
+    velocity.  Thus v_air = v + gust_velocity_y and, for small disturbances,
+    beta_air ~= beta_body + beta_g.
+
+    Uds is the signed peak physical gust speed in the same length/time units as
+    V0.  If a Part 25 design gust is specified in EAS, convert it to the
+    physical/TAS gust speed at the analysis density before calling this
+    function.  H is the gust-gradient distance.  The gust runs over
+    0 <= s <= 2H, where s = V0 * (t - gust_start_time).
     """
     stab = read_vspaero_stab(stab_path)
     control_columns = resolve_control_columns_from_stab(stab, control_map)
@@ -1017,9 +1030,6 @@ def simulate_6dof_crosswind_gust_from_stab(
         raise ValueError("The .stab file must contain a positive Vinf for gust simulation.")
     if float(H) <= 0.0:
         raise ValueError("H must be positive.")
-    if gust_body_axis not in {"x", "y", "z"}:
-        raise ValueError("gust_body_axis must be 'x', 'y', or 'z'.")
-
     gust_duration = 2.0 * float(H) / Vref
     if t_final is None:
         t_final = float(gust_start_time) + gust_duration
@@ -1063,13 +1073,20 @@ def simulate_6dof_crosswind_gust_from_stab(
     if abs(inertia_denominator) < 1.0e-14:
         raise ValueError("Ixx * Izz - Ixz**2 must not be near zero.")
 
-    def gust_body_velocity_at(t: float) -> tuple[float, float, float]:
-        value = one_cosine_gust_velocity(t, Uds=Uds, H=H, V=Vref, start_time=gust_start_time)
-        if gust_body_axis == "x":
-            return value, 0.0, 0.0
-        if gust_body_axis == "z":
-            return 0.0, 0.0, value
-        return 0.0, value, 0.0
+    def gust_velocity_y_at(t: float) -> float:
+        """Return the signed crosswind speed, positive when blowing from right."""
+        return one_cosine_gust_velocity(
+            t,
+            Uds=Uds,
+            H=H,
+            V=Vref,
+            start_time=gust_start_time,
+        )
+
+    def airmass_body_velocity_at(t: float) -> tuple[float, float, float]:
+        """Convert positive-from-right crosswind speed to body-axis air velocity."""
+        gust_velocity_y = gust_velocity_y_at(t)
+        return 0.0, -gust_velocity_y, 0.0
 
     def elevator_deflection_for_state(state: Sequence[float]) -> float:
         if not theta_hold:
@@ -1093,7 +1110,7 @@ def simulate_6dof_crosswind_gust_from_stab(
             state,
             controls_current,
             control_columns,
-            gust_body_velocity=gust_body_velocity_at(t),
+            gust_body_velocity=airmass_body_velocity_at(t),
         )
         qbar_s = 0.5 * rho_used * coeff["V"] * coeff["V"] * stab.Sref
         X = thrust_used + qbar_s * coeff["CX"]
@@ -1140,20 +1157,21 @@ def simulate_6dof_crosswind_gust_from_stab(
     delta_e_values = []
     CX_values, CY_values, CZ_values = [], [], []
     CL_values, CD_values, CS_values = [], [], []
-    gust_x_values, gust_y_values, gust_z_values, beta_g_values = [], [], [], []
+    gust_y_values, airmass_y_values, beta_g_values = [], [], []
     u_air_values, v_air_values, w_air_values = [], [], []
 
     for row in history.itertuples(index=False):
         state = np.array([row.u, row.v, row.w, row.p, row.q, row.r, row.x_e, row.y_e, row.z_e, row.phi, row.theta, row.psi])
         delta_e_current = elevator_deflection_for_state(state)
         controls_current = {"delta_a": controls["delta_a"], "delta_e": delta_e_current, "delta_r": controls["delta_r"]}
-        gust_body_velocity = gust_body_velocity_at(row.time)
+        gust_velocity_y = gust_velocity_y_at(row.time)
+        airmass_body_velocity = airmass_body_velocity_at(row.time)
         coeff = _linear_aero_from_stab(
             stab,
             state,
             controls_current,
             control_columns,
-            gust_body_velocity=gust_body_velocity,
+            gust_body_velocity=airmass_body_velocity,
         )
         V = coeff["V"]
         V_body = max(math.sqrt(row.u * row.u + row.v * row.v + row.w * row.w), 1.0e-12)
@@ -1177,10 +1195,9 @@ def simulate_6dof_crosswind_gust_from_stab(
         CL_values.append(coeff["CL"])
         CD_values.append(coeff["CD"])
         CS_values.append(coeff["CS"])
-        gust_x_values.append(gust_body_velocity[0])
-        gust_y_values.append(gust_body_velocity[1])
-        gust_z_values.append(gust_body_velocity[2])
-        beta_g_values.append(gust_body_velocity[1] / Vref)
+        gust_y_values.append(gust_velocity_y)
+        airmass_y_values.append(airmass_body_velocity[1])
+        beta_g_values.append(math.atan2(gust_velocity_y, Vref))
         u_air_values.append(coeff["u_air"])
         v_air_values.append(coeff["v_air"])
         w_air_values.append(coeff["w_air"])
@@ -1194,10 +1211,10 @@ def simulate_6dof_crosswind_gust_from_stab(
     history["u_air"] = u_air_values
     history["v_air"] = v_air_values
     history["w_air"] = w_air_values
-    history["gust_velocity_x"] = gust_x_values
     history["gust_velocity_y"] = gust_y_values
-    history["gust_velocity_z"] = gust_z_values
+    history["airmass_velocity_y"] = airmass_y_values
     history["beta_g"] = beta_g_values
+    history["crosswind_sign_convention"] = "positive_from_right"
     history["CX"] = CX_values
     history["CY"] = CY_values
     history["CZ"] = CZ_values
@@ -1244,9 +1261,8 @@ def simulate_6dof_crosswind_gust_from_stab(
         "gust_start_time": float(gust_start_time),
         "gust_end_time": float(gust_start_time) + gust_duration,
         "gust_duration": gust_duration,
-        "gust_body_axis": gust_body_axis,
         "gust_reference_V": Vref,
-        "gust_beta_peak": float(Uds) / Vref,
+        "gust_beta_peak": math.atan2(float(Uds), Vref),
     })
     return history
 
@@ -1257,14 +1273,20 @@ def _history_peak(history: pd.DataFrame, column: str) -> tuple[float, float, flo
     index = int(np.nanargmax(np.abs(values)))
     return float(values[index]), float(abs(values[index])), float(history["time"].iloc[index])
 
-def calculate_crosswind_gust_response_metrics(
+def calculate_crosswind_gust_response_indices(
     history: pd.DataFrame,
     *,
     phi0: float | None = None,
     Vref: float | None = None,
     Bref: float | None = None,
 ) -> dict[str, Any]:
-    """Calculate compact response metrics from a crosswind-gust 6DOF history."""
+    """Calculate compact response indices from a positive-from-right gust history."""
+    sign_convention = history.attrs.get("crosswind_sign_convention")
+    if sign_convention is None and "crosswind_sign_convention" in history.columns:
+        values = history["crosswind_sign_convention"].dropna().astype(str).unique()
+        if len(values) == 1:
+            sign_convention = values[0]
+
     for column in ("time", "phi", "beta", "p", "r", "phat", "rhat"):
         if column not in history.columns:
             raise KeyError(f"history is missing required column: {column!r}")
@@ -1283,7 +1305,14 @@ def calculate_crosswind_gust_response_metrics(
     H = float(history.attrs.get("gust_H", np.nan))
     gust_start = float(history.attrs.get("gust_start_time", time_values[0]))
     gust_end = float(history.attrs.get("gust_end_time", time_values[-1]))
-    beta_g_peak = float(history.attrs.get("gust_beta_peak", Uds / V_used if math.isfinite(Uds) and V_used > 0.0 else np.nan))
+    beta_g_peak = float(
+        history.attrs.get(
+            "gust_beta_peak",
+            math.atan2(Uds, V_used)
+            if math.isfinite(Uds) and V_used > 0.0
+            else np.nan,
+        )
+    )
     beta_scale = abs(beta_g_peak) if math.isfinite(beta_g_peak) and abs(beta_g_peak) > 1.0e-14 else math.nan
 
     phi_delta = history["phi"].to_numpy(dtype=float) - phi_reference
@@ -1334,20 +1363,20 @@ def calculate_crosswind_gust_response_metrics(
         "crosswind_gust_peak_rhat": rhat_peak,
         "crosswind_gust_max_abs_rhat": rhat_peak_abs,
         "crosswind_gust_max_abs_rhat_time": rhat_peak_time,
-        "crosswind_gust_bank_metric_abs_per_beta_g": math.nan,
-        "crosswind_gust_bank_metric_final_per_beta_g": math.nan,
-        "crosswind_gust_bank_metric_at_gust_end_per_beta_g": math.nan,
-        "crosswind_gust_phat_metric_abs_per_beta_g": math.nan,
-        "crosswind_gust_rhat_metric_abs_per_beta_g": math.nan,
+        "crosswind_gust_bank_index_abs_per_beta_g": math.nan,
+        "crosswind_gust_bank_index_final_per_beta_g": math.nan,
+        "crosswind_gust_bank_index_at_gust_end_per_beta_g": math.nan,
+        "crosswind_gust_phat_index_abs_per_beta_g": math.nan,
+        "crosswind_gust_rhat_index_abs_per_beta_g": math.nan,
     }
     if math.isfinite(beta_scale):
-        result["crosswind_gust_bank_metric_abs_per_beta_g"] = max_abs_phi_delta / beta_scale
-        result["crosswind_gust_phat_metric_abs_per_beta_g"] = phat_peak_abs / beta_scale
-        result["crosswind_gust_rhat_metric_abs_per_beta_g"] = rhat_peak_abs / beta_scale
-        result["crosswind_gust_bank_metric_final_per_beta_g"] = phi_delta_final / beta_g_peak
-        result["crosswind_gust_bank_metric_at_gust_end_per_beta_g"] = phi_delta_at_gust_end / beta_g_peak
+        result["crosswind_gust_bank_index_abs_per_beta_g"] = max_abs_phi_delta / beta_scale
+        result["crosswind_gust_phat_index_abs_per_beta_g"] = phat_peak_abs / beta_scale
+        result["crosswind_gust_rhat_index_abs_per_beta_g"] = rhat_peak_abs / beta_scale
+        result["crosswind_gust_bank_index_final_per_beta_g"] = phi_delta_final / beta_g_peak
+        result["crosswind_gust_bank_index_at_gust_end_per_beta_g"] = phi_delta_at_gust_end / beta_g_peak
     if math.isfinite(Bref_used):
-        result["crosswind_gust_metric_Bref"] = Bref_used
+        result["crosswind_gust_index_Bref"] = Bref_used
     return result
 
 def write_6dof_history_csv(history: pd.DataFrame, csv_path: str | Path) -> Path:
@@ -1565,7 +1594,7 @@ def simulate_reduced_lateral_response_from_stab(
     return history
 
 def plot_vv_gamma_row_6dof_vs_reduced_response(
-    metrics: pd.DataFrame | str | Path,
+    indices: pd.DataFrame | str | Path,
     row_index: int,
     *,
     mass: float,
@@ -1583,7 +1612,7 @@ def plot_vv_gamma_row_6dof_vs_reduced_response(
     include_roll_damping: bool = False,
     include_yaw_damping: bool = False,
 ):
-    """Plot one vv_gamma_metrics row: 6DOF history versus reduced response.
+    """Plot one vv_gamma_indices row: 6DOF history versus reduced response.
 
     The selected row supplies the .stab path, rudder step, target-delta-phi
     settings, and optionally an existing sixdof_history_csv_path.  The reduced
@@ -1593,7 +1622,7 @@ def plot_vv_gamma_row_6dof_vs_reduced_response(
     is taken from the 6DOF history so the simplified response is judged against
     the nonlinear response scale.
     """
-    table = metrics.copy() if isinstance(metrics, pd.DataFrame) else pd.read_csv(metrics)
+    table = indices.copy() if isinstance(indices, pd.DataFrame) else pd.read_csv(indices)
     row = table.iloc[int(row_index)]
 
     stab_path = Path(str(row["stab_path"]))
@@ -1762,7 +1791,7 @@ def estimate_roll_rate_gain_from_history(history: pd.DataFrame, delta_r: float, 
         "phat_per_delta_r_sim": phat_mean / float(delta_r),
     }
 
-def calculate_roll_response_metric_by_delta_phi(
+def calculate_roll_response_index_by_delta_phi(
     history: pd.DataFrame,
     *,
     delta_r: float,
@@ -1775,8 +1804,8 @@ def calculate_roll_response_metric_by_delta_phi(
 
     The target is reached when phi(t) - phi0 first equals the signed
     target_delta_phi.  The reach time is linearly interpolated between the two
-    surrounding samples.  If the target is not reached, the primary metric is
-    NaN and a reference metric based on (phi_final - phi0) / t_final is still
+    surrounding samples.  If the target is not reached, the primary index is
+    NaN and a reference index based on (phi_final - phi0) / t_final is still
     returned.  The V used in b/(2V) is supplied by the caller, normally the
     .stab Vinf, not the time-history average.
     """
@@ -1841,15 +1870,15 @@ def calculate_roll_response_metric_by_delta_phi(
         "sixdof_t_reach": t_reach,
         "sixdof_dt_reach": math.nan,
         "sixdof_delta_r": float(delta_r),
-        "sixdof_metric_Vinf": float(V),
-        "sixdof_metric_Bref": float(Bref),
+        "sixdof_index_Vinf": float(V),
+        "sixdof_index_Bref": float(Bref),
         "sixdof_roll_response_phi_rate": math.nan,
         "sixdof_roll_response_phi_rate_per_delta_r": math.nan,
-        "sixdof_finite_time_roll_metric": math.nan,
+        "sixdof_finite_time_roll_index": math.nan,
         "sixdof_roll_response_error": "" if reached else "target_delta_phi_not_reached",
         "sixdof_roll_response_reference_phi_rate_to_t_final": reference_phi_rate,
         "sixdof_roll_response_reference_phi_rate_per_delta_r_to_t_final": reference_phi_rate / float(delta_r),
-        "sixdof_roll_response_metric_reference": scale * reference_phi_rate / float(delta_r),
+        "sixdof_roll_response_index_reference": scale * reference_phi_rate / float(delta_r),
         "sixdof_roll_response_fraction_of_target": phi_delta_final / target,
     }
     if reached:
@@ -1861,7 +1890,7 @@ def calculate_roll_response_metric_by_delta_phi(
             phi_rate = target / dt_reach
             result["sixdof_roll_response_phi_rate"] = phi_rate
             result["sixdof_roll_response_phi_rate_per_delta_r"] = phi_rate / float(delta_r)
-            result["sixdof_finite_time_roll_metric"] = scale * phi_rate / float(delta_r)
+            result["sixdof_finite_time_roll_index"] = scale * phi_rate / float(delta_r)
     return result
 
 def compare_quasi_steady_and_6dof_rudder_roll_gain(
@@ -1878,8 +1907,8 @@ def compare_quasi_steady_and_6dof_rudder_roll_gain(
     target_delta_phi: float = math.radians(5.0),
     stop_at_target_delta_phi: bool = False,
     evaluation_window: tuple[float, float] | None = None,
-    metric_V: float | None = None,
-    metric_Bref: float | None = None,
+    index_V: float | None = None,
+    index_Bref: float | None = None,
     control_map: Mapping[str, str] | None = None,
     delta_a: float = 0.0,
     delta_e: float | None = None,
@@ -1949,12 +1978,12 @@ def compare_quasi_steady_and_6dof_rudder_roll_gain(
     if evaluation_mode == "window":
         estimated = estimate_roll_rate_gain_from_history(history, delta_r, evaluation_window=evaluation_window)
     else:
-        estimated = calculate_roll_response_metric_by_delta_phi(
+        estimated = calculate_roll_response_index_by_delta_phi(
             history,
             delta_r=delta_r,
             target_delta_phi=target_delta_phi,
-            V=float(quasi["V"] if metric_V is None else metric_V),
-            Bref=float(quasi["Bref"] if metric_Bref is None else metric_Bref),
+            V=float(quasi["V"] if index_V is None else index_V),
+            Bref=float(quasi["Bref"] if index_Bref is None else index_Bref),
             phi0=phi0,
         )
 
@@ -1982,16 +2011,16 @@ def compare_quasi_steady_and_6dof_rudder_roll_gain(
             "phi_slope_per_delta_r_sim_minus_p_stab": estimated["phi_slope_per_delta_r_sim"] - quasi["p_per_delta_r"],
         }
     else:
-        metric = float(estimated["sixdof_finite_time_roll_metric"])
-        metric_reference = float(estimated["sixdof_roll_response_metric_reference"])
-        p_scale = 2.0 * float(estimated["sixdof_metric_Vinf"]) / float(estimated["sixdof_metric_Bref"])
+        index = float(estimated["sixdof_finite_time_roll_index"])
+        index_reference = float(estimated["sixdof_roll_response_index_reference"])
+        p_scale = 2.0 * float(estimated["sixdof_index_Vinf"]) / float(estimated["sixdof_index_Bref"])
         differences = {
-            "phat_per_delta_r_sim_minus_stab": metric - quasi["phat_per_delta_r"],
-            "phat_per_delta_r_relative_error": relative_error(quasi["phat_per_delta_r"], metric),
-            "p_per_delta_r_from_delta_phi_minus_stab": p_scale * metric - quasi["p_per_delta_r"],
-            "p_per_delta_r_from_delta_phi_relative_error": relative_error(quasi["p_per_delta_r"], p_scale * metric),
-            "phat_reference_per_delta_r_minus_stab": metric_reference - quasi["phat_per_delta_r"],
-            "phat_reference_per_delta_r_relative_error": relative_error(quasi["phat_per_delta_r"], metric_reference),
+            "phat_per_delta_r_sim_minus_stab": index - quasi["phat_per_delta_r"],
+            "phat_per_delta_r_relative_error": relative_error(quasi["phat_per_delta_r"], index),
+            "p_per_delta_r_from_delta_phi_minus_stab": p_scale * index - quasi["p_per_delta_r"],
+            "p_per_delta_r_from_delta_phi_relative_error": relative_error(quasi["p_per_delta_r"], p_scale * index),
+            "phat_reference_per_delta_r_minus_stab": index_reference - quasi["phat_per_delta_r"],
+            "phat_reference_per_delta_r_relative_error": relative_error(quasi["phat_per_delta_r"], index_reference),
         }
 
     return {

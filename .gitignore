@@ -180,6 +180,11 @@ cython_debug/
 *.taglist
 *.lnk
 *.group.*
+*.csf
+*.vsp3.txt
+
+*_plots
+6dof_histories
 
 VSPU Tutorial Models
 99_old

@@ -12,10 +12,11 @@ The main workflow is intentionally split into two readable stages:
 
     3. postprocess_vv_gamma_cases:
        tip_deflection + semispan -> analytic elliptical-planform weighted
-       Gamma_eff, then .stab parsing -> stability metrics -> linear finite-time lateral response
-       -> 6DOF signed-delta-phi roll-response metric ->
-       crosswind-gust short-time roll-path metric ->
-       optional level/gliding turn-trim metrics
+       Gamma_eff, then .stab parsing -> stability indices -> simple rudder-roll index
+       -> 6DOF signed-delta-phi roll-response index ->
+       crosswind-gust short-time roll-path index ->
+       simple maximum-bank estimate -> optional fixed-bank and
+       rudder-limit level/gliding turn-trim indices
 
 Angles are radians in the numerical/flight-mechanics functions.  The final
 postprocess_vv_gamma_cases() output DataFrame/CSV is a plotting and review
@@ -53,11 +54,12 @@ from .util import (
     set_xsec_value,
     workdir,
 )
-from .TrimTurnSolver import(
+from .TrimTurnSolver import (
     read_vspaero_stab,
     resolve_control_columns_from_stab,
-    solve_steady_level_turn,
+    solve_rudder_limit_turn,
     solve_steady_gliding_turn,
+    solve_steady_level_turn,
 )
 
 # ---------------------------------------------------------------------------
@@ -603,7 +605,7 @@ def apply_wing_deflection_as_dihedral(
     }
 
 # ---------------------------------------------------------------------------
-# .stab based metrics and post-processing
+# .stab based indices and post-processing
 # ---------------------------------------------------------------------------
 
 def _import_roll_rudder_gain():
@@ -619,7 +621,7 @@ def _stab_derivative(stab, coef: str, column: str) -> float:
         raise KeyError(f"Derivative column '{column}' was not found in .stab derivatives.")
     return float(stab.derivatives.loc[coef, column])
 
-def calculate_stab_basic_metrics(
+def calculate_stab_basic_indices(
     stab_path: str | os.PathLike,
     *,
     vv: float | None = None,
@@ -627,9 +629,9 @@ def calculate_stab_basic_metrics(
     control_map: Mapping[str, str] | None = None,
     verbose: int | bool = 0,
 ) -> dict[str, Any]:
-    """Read one .stab file and return direct stability metrics."""
+    """Read one .stab file and return direct stability indices."""
 
-    _vprint(verbose, 2, f"Basic .stab metrics start: {stab_path}")
+    _vprint(verbose, 2, f"Basic .stab indices start: {stab_path}")
     stab = read_vspaero_stab(stab_path)
     control_columns = resolve_control_columns_from_stab(stab, control_map)
     rudder_column = control_columns.get("delta_r")
@@ -656,6 +658,7 @@ def calculate_stab_basic_metrics(
     cy_delta_r = rudder_gain.solver_axis_derivative_value_from_stab(stab, "CY", rudder_column) if rudder_column else math.nan
 
     spiral_margin = cl_beta * cn_r - cn_beta * cl_r
+    simple_rudder_roll_index = (cl_r - cl_beta) * cn_delta_r
     simple_turn_trim_denominator = cn_delta_r * cl_r
     simple_turn_trim_delta_r_per_beta = math.nan
     if (
@@ -665,7 +668,7 @@ def calculate_stab_basic_metrics(
     ):
         simple_turn_trim_delta_r_per_beta = spiral_margin / simple_turn_trim_denominator
 
-    metrics: dict[str, Any] = {
+    indices: dict[str, Any] = {
         "stab_path": os.fspath(stab_path),
         "Vv": np.nan if vv is None else float(vv),
         "tip_deflection": np.nan if tip_deflection is None else float(tip_deflection),
@@ -687,6 +690,7 @@ def calculate_stab_basic_metrics(
         "CS_delta_r": cs_delta_r,
         "CY_delta_r": cy_delta_r,
         "spiral_margin": spiral_margin,
+        "simple_rudder_roll_index": simple_rudder_roll_index,
         "simple_turn_trim_delta_r_per_beta": simple_turn_trim_delta_r_per_beta,
         "control_column_delta_a": aileron_column,
         "control_column_delta_e": elevator_column,
@@ -708,12 +712,12 @@ def calculate_stab_basic_metrics(
     # Export the full .stab derivative table in the same column convention used
     # by the wake-iteration sensitivity notebook: CL_Base, CL_Alpha, CMl_Beta,
     # CMm_ConGrp_2, etc.  The compact aliases above are kept only for the
-    # existing Vv-Gamma metrics and labels.
+    # existing Vv-Gamma indices and labels.
     for coef_name in stab.derivatives.index:
         row = stab.derivatives.loc[coef_name]
         for derivative_name, value in row.items():
             column_name = f"{coef_name}_Base" if derivative_name == "Base" else f"{coef_name}_{derivative_name}"
-            metrics[column_name] = float(value)
+            indices[column_name] = float(value)
 
     # VSPAERO writes side force as CS.  For plotting in the usual solver body-axis
     # convention, also write CY_* using CY = -CD sin(beta0) + CS cos(beta0).
@@ -721,26 +725,26 @@ def calculate_stab_basic_metrics(
         beta0 = float(stab.beta0)
         cd_row = stab.derivatives.loc["CD"]
         cs_row = stab.derivatives.loc["CS"]
-        metrics["CY_Base"] = -float(cd_row["Base"]) * math.sin(beta0) + float(cs_row["Base"]) * math.cos(beta0)
+        indices["CY_Base"] = -float(cd_row["Base"]) * math.sin(beta0) + float(cs_row["Base"]) * math.cos(beta0)
         for derivative_name in stab.derivatives.columns:
             if derivative_name == "Base":
                 continue
             if derivative_name not in cd_row.index or derivative_name not in cs_row.index:
                 continue
             if derivative_name == "Beta":
-                metrics["CY_Beta"] = (
+                indices["CY_Beta"] = (
                     -float(cd_row["Base"]) * math.cos(beta0)
                     -float(cd_row["Beta"]) * math.sin(beta0)
                     +float(cs_row["Beta"]) * math.cos(beta0)
                     -float(cs_row["Base"]) * math.sin(beta0)
                 )
             else:
-                metrics[f"CY_{derivative_name}"] = (
+                indices[f"CY_{derivative_name}"] = (
                     -float(cd_row[derivative_name]) * math.sin(beta0)
                     +float(cs_row[derivative_name]) * math.cos(beta0)
                 )
 
-    return metrics
+    return indices
 
 def _flatten_turn_trim(trim: Mapping[str, Any]) -> dict[str, Any]:
     passed = bool(trim.get("passed", False))
@@ -752,9 +756,8 @@ def _flatten_turn_trim(trim: Mapping[str, Any]) -> dict[str, Any]:
         "turn_trim_nfev": trim.get("nfev", np.nan),
     }
 
-    # Keep raw solver outputs for debugging even when the trim did not pass.
-    # The direct turn_trim_* columns below are the plotting/review values and
-    # are therefore populated only for accepted trim solutions.
+    # Keep raw solver outputs for diagnosis even when the trim did not pass.
+    # Direct turn_trim_* columns are populated only for accepted solutions.
     for source_name in ("solution", "derived", "coefficients", "residuals"):
         for key, value in (trim.get(source_name, {}) or {}).items():
             if isinstance(value, (int, float, np.floating, np.integer, bool, str)) or value is None:
@@ -768,16 +771,13 @@ def _flatten_turn_trim(trim: Mapping[str, Any]) -> dict[str, Any]:
 
     result["turn_trim_delta_r_per_beta"] = np.nan
     if passed:
-        try:
-            beta_value = float(solution.get("beta", np.nan))
-            delta_r_value = float(solution.get("delta_r", np.nan))
-            if math.isfinite(beta_value) and math.isfinite(delta_r_value) and abs(beta_value) >= 1.0e-14:
-                result["turn_trim_delta_r_per_beta"] = delta_r_value / beta_value
-        except (TypeError, ValueError):
-            pass
+        beta_value = float(solution.get("beta", np.nan))
+        delta_r_value = float(solution.get("delta_r", np.nan))
+        if math.isfinite(beta_value) and math.isfinite(delta_r_value) and abs(beta_value) >= 1.0e-14:
+            result["turn_trim_delta_r_per_beta"] = delta_r_value / beta_value
     return result
 
-def calculate_turn_trim_metrics_from_stab(
+def calculate_turn_trim_indices_from_stab(
     stab_path: str | os.PathLike,
     *,
     mode: str = "gliding",
@@ -792,10 +792,11 @@ def calculate_turn_trim_metrics_from_stab(
     g: float = 9.80665,
     verbose: int | bool = 0,
 ) -> dict[str, Any]:
-    """Solve V=.stab Vinf, phi=5 deg by default, delta_a=0 turn trim."""
+    """Solve V=.stab Vinf, fixed phi, and fixed delta_a turn trim."""
 
     if mode not in {"none", "level", "gliding"}:
         raise ValueError("mode must be 'none', 'level', or 'gliding'.")
+
     result: dict[str, Any] = {
         "turn_trim_mode": mode,
         "turn_trim_fixed_phi": float(phi),
@@ -824,6 +825,103 @@ def calculate_turn_trim_metrics_from_stab(
             verbose=trim_verbose,
         )
     result.update(_flatten_turn_trim(trim))
+    return result
+
+def _flatten_rudder_limit_turn(trim: Mapping[str, Any]) -> dict[str, Any]:
+    """Flatten the selected rudder-limit trim and both endpoint summaries."""
+
+    prefix = "rudder_limit_turn"
+    passed = bool(trim.get("passed", False))
+    result: dict[str, Any] = {
+        f"{prefix}_passed": passed,
+        f"{prefix}_complete": bool(trim.get("rudder_limit_complete", False)),
+        f"{prefix}_message": trim.get("message", ""),
+        f"{prefix}_selected_side": trim.get("selected_side", ""),
+        f"{prefix}_delta_r_max": trim.get("delta_r_max", np.nan),
+        f"{prefix}_limiting_delta_r": trim.get("limiting_delta_r", np.nan),
+        f"{prefix}_max_abs_phi": trim.get("max_abs_phi", np.nan),
+        f"{prefix}_fixed_V": trim.get("fixed_V", np.nan),
+        f"{prefix}_fixed_delta_a": trim.get("fixed_delta_a", np.nan),
+        f"{prefix}_max_abs_residual": trim.get("max_abs_residual", np.nan),
+        f"{prefix}_cost": trim.get("cost", np.nan),
+        f"{prefix}_nfev": trim.get("nfev", np.nan),
+    }
+
+    # Keep raw selected-solution outputs for diagnosis.  Direct columns below
+    # are populated only when at least one endpoint produced an accepted trim.
+    for source_name in ("solution", "derived", "coefficients", "residuals"):
+        for key, value in (trim.get(source_name, {}) or {}).items():
+            if isinstance(value, (int, float, np.floating, np.integer, bool, str)) or value is None:
+                result[f"{prefix}_{source_name}_{key}"] = value
+    if "height_residual" in trim:
+        result[f"{prefix}_height_residual"] = trim["height_residual"]
+
+    solution = trim.get("solution", {}) or {}
+    for parameter_name in ("V", "alpha", "beta", "phi", "theta", "Omega", "delta_e", "delta_a", "delta_r", "T"):
+        result[f"{prefix}_{parameter_name}"] = solution.get(parameter_name, np.nan) if passed else np.nan
+
+    result[f"{prefix}_delta_r_per_beta"] = np.nan
+    if passed:
+        beta_value = float(solution.get("beta", np.nan))
+        delta_r_value = float(solution.get("delta_r", np.nan))
+        if math.isfinite(beta_value) and math.isfinite(delta_r_value) and abs(beta_value) >= 1.0e-14:
+            result[f"{prefix}_delta_r_per_beta"] = delta_r_value / beta_value
+
+    for side in ("negative", "positive"):
+        endpoint = trim.get(f"{side}_trim", {}) or {}
+        endpoint_solution = endpoint.get("solution", {}) or {}
+        result[f"{prefix}_{side}_passed"] = bool(endpoint.get("passed", False))
+        result[f"{prefix}_{side}_message"] = endpoint.get("message", "")
+        result[f"{prefix}_{side}_max_abs_residual"] = endpoint.get("max_abs_residual", np.nan)
+        for parameter_name in ("beta", "phi", "Omega", "delta_r"):
+            result[f"{prefix}_{side}_{parameter_name}"] = endpoint_solution.get(parameter_name, np.nan)
+
+    return result
+
+def calculate_rudder_limit_turn_indices_from_stab(
+    stab_path: str | os.PathLike,
+    *,
+    mode: str = "gliding",
+    mass: float,
+    delta_r_max: float,
+    rho: float | None = None,
+    delta_a: float = 0.0,
+    initial_guess: Mapping[str, float] | None = None,
+    bounds: tuple[Mapping[str, float], Mapping[str, float]] | None = None,
+    residual_tol: float = 1.0e-6,
+    control_map: Mapping[str, str] | None = None,
+    g: float = 9.80665,
+    verbose: int | bool = 0,
+) -> dict[str, Any]:
+    """Return maximum-bank indices from the two rudder-limit endpoint trims."""
+
+    if mode not in {"none", "level", "gliding"}:
+        raise ValueError("mode must be 'none', 'level', or 'gliding'.")
+
+    result: dict[str, Any] = {
+        "rudder_limit_turn_mode": mode,
+        "rudder_limit_turn_delta_r_max": float(delta_r_max),
+        "rudder_limit_turn_fixed_delta_a": float(delta_a),
+        "rudder_limit_turn_passed": np.nan,
+    }
+    if mode == "none":
+        return result
+
+    trim = solve_rudder_limit_turn(
+        stab_path,
+        mass,
+        delta_r_max,
+        mode=mode,
+        delta_a=delta_a,
+        rho=rho,
+        initial_guess=initial_guess,
+        g=g,
+        bounds=bounds,
+        control_map=control_map,
+        residual_tol=residual_tol,
+        verbose=1 if verbose and int(verbose) >= 3 else 0,
+    )
+    result.update(_flatten_rudder_limit_turn(trim))
     return result
 
 def _find_case_stab_file(case_dir: Path, fallback_stem: str | None = None) -> Path:
@@ -1078,7 +1176,7 @@ def run_vv_wtip_stability_sweep(
 def run_vv_gamma_chart(*args, **kwargs) -> pd.DataFrame:
     """Deprecated name. Runs only the separated Vv/wtip stability sweep."""
 
-    removed_keywords = {"turn_trim_mode", "turn_trim_fixed", "mass", "rho", "initial_guess", "bounds", "residual_tol", "control_map"}
+    removed_keywords = {"turn_trim_mode", "turn_trim_fixed", "rudder_limit_turn_mode", "rudder_limit_turn_delta_r_max", "mass", "rho", "initial_guess", "bounds", "residual_tol", "control_map"}
     used_removed = sorted(key for key in removed_keywords if key in kwargs)
     if used_removed:
         raise TypeError(
@@ -1097,8 +1195,8 @@ def convert_vv_gamma_postprocess_output_units(result: pd.DataFrame) -> pd.DataFr
     Deliberately unchanged:
     - stability derivatives such as Cl_beta, Cn_r, CL_Alpha, CMl_Beta
     - reduced rates such as p_hat, q_hat, r_hat, phat, qhat, rhat
-    - gains and ratios such as *_per_delta_r, *_per_beta, finite-time metrics
-    - Taylor coefficients and nondimensional response coefficients
+    - gains and ratios such as *_per_delta_r, *_per_beta, finite-time indices
+    - nondimensional response indices and coefficients
     """
 
     result = result.copy()
@@ -1120,12 +1218,6 @@ def convert_vv_gamma_postprocess_output_units(result: pd.DataFrame) -> pd.DataFr
         "delta_e",
         "delta_a",
         "delta_r",
-        "linear_delta_r",
-        "linear_target_delta_phi",
-        "linear_phi0",
-        "linear_phi_final",
-        "linear_phi_delta_final",
-        "linear_beta_final",
         "sixdof_delta_r",
         "sixdof_target_delta_phi",
         "sixdof_phi0",
@@ -1160,6 +1252,32 @@ def convert_vv_gamma_postprocess_output_units(result: pd.DataFrame) -> pd.DataFr
         "turn_trim_solution_delta_e",
         "turn_trim_solution_delta_a",
         "turn_trim_solution_delta_r",
+        "simple_rudder_limit_turn_phi_at_positive_delta_r_max",
+        "simple_rudder_limit_turn_max_abs_phi",
+        "rudder_limit_turn_delta_r_max",
+        "rudder_limit_turn_limiting_delta_r",
+        "rudder_limit_turn_max_abs_phi",
+        "rudder_limit_turn_fixed_delta_a",
+        "rudder_limit_turn_alpha",
+        "rudder_limit_turn_beta",
+        "rudder_limit_turn_phi",
+        "rudder_limit_turn_theta",
+        "rudder_limit_turn_delta_e",
+        "rudder_limit_turn_delta_a",
+        "rudder_limit_turn_delta_r",
+        "rudder_limit_turn_solution_alpha",
+        "rudder_limit_turn_solution_beta",
+        "rudder_limit_turn_solution_phi",
+        "rudder_limit_turn_solution_theta",
+        "rudder_limit_turn_solution_delta_e",
+        "rudder_limit_turn_solution_delta_a",
+        "rudder_limit_turn_solution_delta_r",
+        "rudder_limit_turn_negative_beta",
+        "rudder_limit_turn_negative_phi",
+        "rudder_limit_turn_negative_delta_r",
+        "rudder_limit_turn_positive_beta",
+        "rudder_limit_turn_positive_phi",
+        "rudder_limit_turn_positive_delta_r",
     ]
     angular_rate_columns_from_rad_s = [
         "p",
@@ -1167,8 +1285,6 @@ def convert_vv_gamma_postprocess_output_units(result: pd.DataFrame) -> pd.DataFr
         "r",
         "Omega",
         "phi_dot",
-        "linear_roll_response_phi_rate",
-        "linear_roll_response_reference_phi_rate_to_t_final",
         "sixdof_roll_response_phi_rate",
         "sixdof_roll_response_reference_phi_rate_to_t_final",
         "crosswind_gust_peak_p",
@@ -1180,6 +1296,13 @@ def convert_vv_gamma_postprocess_output_units(result: pd.DataFrame) -> pd.DataFr
         "turn_trim_derived_p",
         "turn_trim_derived_q",
         "turn_trim_derived_r",
+        "rudder_limit_turn_Omega",
+        "rudder_limit_turn_solution_Omega",
+        "rudder_limit_turn_derived_p",
+        "rudder_limit_turn_derived_q",
+        "rudder_limit_turn_derived_r",
+        "rudder_limit_turn_negative_Omega",
+        "rudder_limit_turn_positive_Omega",
     ]
 
     for column in angle_columns_from_rad:
@@ -1204,13 +1327,11 @@ def postprocess_vv_gamma_cases(
     inertia: Mapping[str, float] | None = None,
     rho: float | None = None,
     g: float = 9.80665,
-    calculate_linear_lateral_response: bool = True,
     run_6dof: bool = True,
     delta_r: float = math.radians(5.0),
     target_delta_phi: float = math.radians(5.0),
     stop_6dof_at_target_delta_phi: bool = True,
     t_final: float = 10.0,
-    taylor_tau_eval: float = 1.0,
     delta_a: float = 0.0,
     delta_e: float | None = None,
     trim_elevator: bool = True,
@@ -1234,6 +1355,12 @@ def postprocess_vv_gamma_cases(
     turn_trim_initial_guess: Mapping[str, float] | None = None,
     turn_trim_bounds: tuple[Mapping[str, float], Mapping[str, float]] | None = None,
     turn_trim_residual_tol: float = 1.0e-6,
+    rudder_limit_turn_mode: str = "none",
+    rudder_limit_turn_delta_r_max: float | None = None,
+    rudder_limit_turn_delta_a: float = 0.0,
+    rudder_limit_turn_initial_guess: Mapping[str, float] | None = None,
+    rudder_limit_turn_bounds: tuple[Mapping[str, float], Mapping[str, float]] | None = None,
+    rudder_limit_turn_residual_tol: float = 1.0e-6,
     write_6dof_history: bool = False,
     plot_6dof_history: bool = False,
     run_crosswind_gust_6dof: bool = False,
@@ -1250,16 +1377,29 @@ def postprocess_vv_gamma_cases(
     output_csv_path: str | os.PathLike | None = None,
     verbose: int | bool = 0,
 ) -> pd.DataFrame:
-    """Add Gamma_eff, .stab metrics, response metrics, and turn-trim metrics.
+    """Add Gamma_eff, .stab indices, response indices, and turn-trim indices.
 
     Internal calculations stay in rad and rad/s. The returned DataFrame and
     optional CSV are converted at the end: angles are deg, angular rates and
     turn rates are deg/s, while stability derivatives, reduced rates, gains,
     and ratios are left unchanged.
+
+    crosswind_gust_Uds uses the positive-from-right convention.  A positive
+    value means a lateral gust blowing from the aircraft right side toward the
+    left side.
     """
 
     if turn_trim_mode not in {"none", "level", "gliding"}:
         raise ValueError("turn_trim_mode must be 'none', 'level', or 'gliding'.")
+    if rudder_limit_turn_mode not in {"none", "level", "gliding"}:
+        raise ValueError("rudder_limit_turn_mode must be 'none', 'level', or 'gliding'.")
+    if rudder_limit_turn_mode != "none":
+        if rudder_limit_turn_delta_r_max is None:
+            raise ValueError(
+                "rudder_limit_turn_delta_r_max is required when rudder-limit turn indices are enabled."
+            )
+        if not math.isfinite(float(rudder_limit_turn_delta_r_max)) or float(rudder_limit_turn_delta_r_max) <= 0.0:
+            raise ValueError("rudder_limit_turn_delta_r_max must be positive and finite.")
     table = results.copy() if isinstance(results, pd.DataFrame) else pd.read_csv(results)
     if stab_path_column not in table.columns:
         raise KeyError(f"results is missing required .stab path column: {stab_path_column!r}")
@@ -1282,26 +1422,39 @@ def postprocess_vv_gamma_cases(
     if gamma_semispan_value <= 0.0:
         raise ValueError("gamma_semispan must be positive.")
 
-    needs_mass = bool(calculate_linear_lateral_response or run_6dof or run_crosswind_gust_6dof or turn_trim_mode != "none")
+    needs_mass = bool(
+        run_6dof
+        or run_crosswind_gust_6dof
+        or turn_trim_mode != "none"
+        or rudder_limit_turn_mode != "none"
+    )
     if needs_mass and mass is None:
-        raise ValueError("mass is required when linear response, 6DOF, gust 6DOF, or turn-trim metrics are enabled.")
-    if calculate_linear_lateral_response or run_6dof or run_crosswind_gust_6dof:
+        raise ValueError(
+            "mass is required when 6DOF, gust 6DOF, fixed-bank turn, "
+            "or rudder-limit turn indices are enabled."
+        )
+    if inertia is not None:
+        if "Izz" not in inertia:
+            raise KeyError(
+                "inertia is missing required key 'Izz' for crosswind_gust_roll_index."
+            )
+        if not math.isfinite(float(inertia["Izz"])) or float(inertia["Izz"]) <= 0.0:
+            raise ValueError("inertia['Izz'] must be positive and finite.")
+    if run_6dof or run_crosswind_gust_6dof:
         if inertia is None:
-            raise ValueError("inertia is required when linear response, 6DOF, or gust 6DOF metrics are enabled.")
-        for key in ("Ixx", "Izz"):
+            raise ValueError("inertia is required when 6DOF or gust 6DOF indices are enabled.")
+        for key in ("Ixx", "Iyy", "Izz"):
             if key not in inertia:
                 raise KeyError(f"inertia is missing required key: {key}")
-    if (run_6dof or run_crosswind_gust_6dof) and "Iyy" not in inertia:
-        raise KeyError("inertia is missing required key: Iyy")
     if run_crosswind_gust_6dof:
         if crosswind_gust_Uds is None:
             raise ValueError("crosswind_gust_Uds is required when run_crosswind_gust_6dof=True.")
         if crosswind_gust_H is None:
             raise ValueError("crosswind_gust_H is required when run_crosswind_gust_6dof=True.")
 
-    rudder_gain = _import_roll_rudder_gain() if (calculate_linear_lateral_response or run_6dof or run_crosswind_gust_6dof) else None
-    Ixx = float(inertia["Ixx"]) if inertia is not None else math.nan
-    Iyy = float(inertia.get("Iyy", math.nan)) if inertia is not None else math.nan
+    rudder_gain = _import_roll_rudder_gain() if (run_6dof or run_crosswind_gust_6dof) else None
+    Ixx = float(inertia["Ixx"]) if inertia is not None and "Ixx" in inertia else math.nan
+    Iyy = float(inertia["Iyy"]) if inertia is not None and "Iyy" in inertia else math.nan
     Izz = float(inertia["Izz"]) if inertia is not None else math.nan
     Ixz = float(inertia.get("Ixz", 0.0)) if inertia is not None else 0.0
     history_output_dir_path = None if history_output_dir is None else Path(history_output_dir)
@@ -1324,85 +1477,14 @@ def postprocess_vv_gamma_cases(
         output_row["Gamma_eff_weight_sum"] = np.nan
         output_row["Gamma_eff_semispan"] = gamma_semispan_value
         output_row["Gamma_eff_n_span"] = int(gamma_n_span)
+        output_row["simple_rudder_roll_index"] = np.nan
         output_row["simple_turn_trim_delta_r_per_beta"] = np.nan
-        output_row["crosswind_gust_roll_metric"] = np.nan
-        if calculate_linear_lateral_response:
-            output_row.update({
-                "linear_response_source": "not_evaluated",
-                "linear_success": False,
-                "linear_message": "not_evaluated",
-                "linear_delta_r": float(delta_r),
-                "linear_target_delta_phi": float(target_delta_phi),
-                "linear_target_delta_phi_deg": math.degrees(float(target_delta_phi)),
-                "linear_t_final_requested": float(t_final),
-                "linear_tau_final_requested": np.nan,
-                "linear_t_final": np.nan,
-                "linear_tau_final": np.nan,
-                "linear_tau_per_second": np.nan,
-                "linear_second_per_tau": np.nan,
-                "linear_phi0": 0.0,
-                "linear_phi_final": np.nan,
-                "linear_phi_delta_final": np.nan,
-                "linear_beta_final": np.nan,
-                "linear_phat_final": np.nan,
-                "linear_rhat_final": np.nan,
-                "linear_roll_response_reached": False,
-                "linear_t_reach": np.nan,
-                "linear_tau_reach": np.nan,
-                "linear_dt_reach": np.nan,
-                "linear_roll_response_phi_rate": np.nan,
-                "linear_roll_response_phi_rate_per_delta_r": np.nan,
-                "linear_finite_time_roll_metric": np.nan,
-                "linear_roll_response_error": "not_evaluated",
-                "linear_roll_response_reference_phi_rate_to_t_final": np.nan,
-                "linear_roll_response_reference_phi_rate_per_delta_r_to_t_final": np.nan,
-                "linear_roll_response_metric_reference": np.nan,
-                "linear_roll_response_fraction_of_target": np.nan,
-                "linear_taylor_source": "not_evaluated",
-                "linear_taylor_K1": np.nan,
-                "linear_taylor_K2": np.nan,
-                "linear_taylor_K3": np.nan,
-                "simple_taylor_source": "not_evaluated",
-                "simple_taylor_assumptions": "",
-                "simple_K1_direct_roll": np.nan,
-                "simple_K2_sideforce_dihedral": np.nan,
-                "simple_K2_yawrate_roll": np.nan,
-                "simple_K2_total": np.nan,
-                "simple_K3_yawrate_to_beta_dihedral": np.nan,
-                "simple_K2_plus_K3_yawrate_roll_beta_dihedral": np.nan,
-                "simple_roll_damping_rate": np.nan,
-                "simple_yaw_damping_rate": np.nan,
-                "simple_K3_yawrate_roll_damping_correction": np.nan,
-                "simple_K3_yawrate_beta_dihedral_damped": np.nan,
-                "simple_K3_reduced": np.nan,
-                "simple_turn_rate_full": np.nan,
-                "simple_turn_rate": np.nan,
-                "initial_response_source": "not_evaluated",
-                "initial_tau_per_second": np.nan,
-                "initial_second_per_tau": np.nan,
-                "initial_mu_y": np.nan,
-                "initial_mu_inertia": np.nan,
-                "initial_inertia_det": np.nan,
-                "initial_rho": np.nan,
-                "initial_V": np.nan,
-                "initial_Sref": np.nan,
-                "initial_Bref": np.nan,
-                "initial_rudder_column": "",
-                "initial_beta_prime_per_delta_r": np.nan,
-                "initial_phat_prime_per_delta_r": np.nan,
-                "initial_rhat_prime_per_delta_r": np.nan,
-                "initial_phat_double_prime_per_delta_r": np.nan,
-                "initial_phi_double_prime_per_delta_r": np.nan,
-                "initial_phi_triple_prime_per_delta_r": np.nan,
-                "initial_phat_prime_direct_roll_part": np.nan,
-                "initial_phat_prime_inertia_cross_yaw_part": np.nan,
-                "initial_rhat_prime_direct_roll_cross_part": np.nan,
-                "initial_rhat_prime_yaw_part": np.nan,
-                "initial_phat_double_prime_beta_part": np.nan,
-                "initial_phat_double_prime_phat_part": np.nan,
-                "initial_phat_double_prime_rhat_part": np.nan,
-            })
-
+        output_row["simple_rudder_turn_K_phi"] = np.nan
+        output_row["simple_rudder_turn_phi_per_delta_r"] = np.nan
+        output_row["simple_rudder_limit_turn_phi_at_positive_delta_r_max"] = np.nan
+        output_row["simple_rudder_limit_turn_max_abs_phi"] = np.nan
+        output_row["crosswind_gust_roll_index"] = np.nan
+        output_row["crosswind_gust_roll_index_abs"] = np.nan
         # Keep the output schema stable even when every completed case fails
         # before the 6DOF or turn-trim step.  This makes downstream plotting
         # fail with "no valid rows" instead of "missing column".
@@ -1423,15 +1505,15 @@ def postprocess_vv_gamma_cases(
                 "sixdof_t_reach": np.nan,
                 "sixdof_dt_reach": np.nan,
                 "sixdof_delta_r": float(delta_r),
-                "sixdof_metric_Vinf": np.nan,
-                "sixdof_metric_Bref": np.nan,
+                "sixdof_index_Vinf": np.nan,
+                "sixdof_index_Bref": np.nan,
                 "sixdof_roll_response_phi_rate": np.nan,
                 "sixdof_roll_response_phi_rate_per_delta_r": np.nan,
-                "sixdof_finite_time_roll_metric": np.nan,
+                "sixdof_finite_time_roll_index": np.nan,
                 "sixdof_roll_response_error": "not_evaluated",
                 "sixdof_roll_response_reference_phi_rate_to_t_final": np.nan,
                 "sixdof_roll_response_reference_phi_rate_per_delta_r_to_t_final": np.nan,
-                "sixdof_roll_response_metric_reference": np.nan,
+                "sixdof_roll_response_index_reference": np.nan,
                 "sixdof_roll_response_fraction_of_target": np.nan,
                 "sixdof_delta_e_initial": np.nan,
                 "sixdof_thrust": np.nan,
@@ -1466,11 +1548,11 @@ def postprocess_vv_gamma_cases(
                 "crosswind_gust_max_abs_phat_time": np.nan,
                 "crosswind_gust_max_abs_rhat": np.nan,
                 "crosswind_gust_max_abs_rhat_time": np.nan,
-                "crosswind_gust_bank_metric_abs_per_beta_g": np.nan,
-                "crosswind_gust_bank_metric_final_per_beta_g": np.nan,
-                "crosswind_gust_bank_metric_at_gust_end_per_beta_g": np.nan,
-                "crosswind_gust_phat_metric_abs_per_beta_g": np.nan,
-                "crosswind_gust_rhat_metric_abs_per_beta_g": np.nan,
+                "crosswind_gust_bank_index_abs_per_beta_g": np.nan,
+                "crosswind_gust_bank_index_final_per_beta_g": np.nan,
+                "crosswind_gust_bank_index_at_gust_end_per_beta_g": np.nan,
+                "crosswind_gust_phat_index_abs_per_beta_g": np.nan,
+                "crosswind_gust_rhat_index_abs_per_beta_g": np.nan,
                 "crosswind_gust_delta_e_initial": np.nan,
                 "crosswind_gust_delta_a": float(crosswind_gust_delta_a),
                 "crosswind_gust_delta_r": float(crosswind_gust_delta_r),
@@ -1492,6 +1574,30 @@ def postprocess_vv_gamma_cases(
                 "turn_trim_T": np.nan,
                 "turn_trim_delta_r_per_beta": np.nan,
             })
+        if rudder_limit_turn_mode != "none":
+            output_row.update({
+                "rudder_limit_turn_mode": rudder_limit_turn_mode,
+                "rudder_limit_turn_passed": False,
+                "rudder_limit_turn_complete": False,
+                "rudder_limit_turn_delta_r_max": float(rudder_limit_turn_delta_r_max),
+                "rudder_limit_turn_fixed_delta_a": float(rudder_limit_turn_delta_a),
+                "rudder_limit_turn_selected_side": "",
+                "rudder_limit_turn_max_abs_phi": np.nan,
+                "rudder_limit_turn_limiting_delta_r": np.nan,
+                "rudder_limit_turn_V": np.nan,
+                "rudder_limit_turn_alpha": np.nan,
+                "rudder_limit_turn_beta": np.nan,
+                "rudder_limit_turn_phi": np.nan,
+                "rudder_limit_turn_theta": np.nan,
+                "rudder_limit_turn_Omega": np.nan,
+                "rudder_limit_turn_delta_e": np.nan,
+                "rudder_limit_turn_delta_a": np.nan,
+                "rudder_limit_turn_delta_r": np.nan,
+                "rudder_limit_turn_T": np.nan,
+                "rudder_limit_turn_delta_r_per_beta": np.nan,
+                "rudder_limit_turn_negative_passed": False,
+                "rudder_limit_turn_positive_passed": False,
+            })
 
         stab_path_value = row.get(stab_path_column, "")
         if pd.isna(stab_path_value) or str(stab_path_value).strip() == "":
@@ -1511,32 +1617,90 @@ def postprocess_vv_gamma_cases(
                 n_span=int(gamma_n_span),
             )
             output_row.update(gamma_eff)
-            basic = calculate_stab_basic_metrics(stab_path, vv=row.get("Vv", None), tip_deflection=row.get("tip_deflection", None), control_map=control_map, verbose=verbose)
+            basic = calculate_stab_basic_indices(stab_path, vv=row.get("Vv", None), tip_deflection=row.get("tip_deflection", None), control_map=control_map, verbose=verbose)
             output_row.update(basic)
 
-            # Short-time crosswind-gust roll-path proxy from the article:
-            #   K = -[(m / (rho S b)) Cl_beta + Cl_rhat Cn_beta]
-            # It is a static .stab-derived indicator, so it does not require a
-            # time-marching gust simulation.  Positive values mean the two
-            # retained paths tend to increase the initial gust roll response in
-            # the sign convention used by the article.
-            if mass is not None:
+            # Small-angle steady rudder-only turn approximation from the article:
+            #
+            #   phi / delta_r = q S / (m g) * K_phi
+            #
+            #   K_phi = -Cn_delta_r / spiral_margin
+            #           * [4m/(rho S b) Cl_beta + CY_beta Cl_r]
+            #
+            # The signed value uses +delta_r_max.  The absolute value is the
+            # simple estimate of the maximum trimmable bank angle.  Near a zero
+            # spiral denominator the approximation is intentionally left NaN.
+            if rudder_limit_turn_mode != "none":
                 rho_used = float(basic["Rho"] if rho is None else rho)
-                output_row["crosswind_gust_roll_metric"] = -(
-                    float(mass) / (rho_used * float(basic["Sref"]) * float(basic["Bref"])) * float(basic["Cl_beta"])
-                    + float(basic["Cl_r"]) * float(basic["Cn_beta"])
-                )
+                spiral_margin = float(basic["spiral_margin"])
+                if (
+                    math.isfinite(rho_used)
+                    and rho_used > 0.0
+                    and math.isfinite(spiral_margin)
+                    and abs(spiral_margin) >= 1.0e-14
+                ):
+                    simple_K_phi = (
+                        -float(basic["Cn_delta_r"])
+                        / spiral_margin
+                        * (
+                            4.0
+                            * float(mass)
+                            / (rho_used * float(basic["Sref"]) * float(basic["Bref"]))
+                            * float(basic["Cl_beta"])
+                            + float(basic["CY_beta"]) * float(basic["Cl_r"])
+                        )
+                    )
+                    simple_phi_per_delta_r = (
+                        0.5
+                        * rho_used
+                        * float(basic["Vinf"]) ** 2
+                        * float(basic["Sref"])
+                        / (float(mass) * float(g))
+                        * simple_K_phi
+                    )
+                    simple_phi_at_positive_limit = (
+                        simple_phi_per_delta_r
+                        * float(rudder_limit_turn_delta_r_max)
+                    )
+                    output_row["simple_rudder_turn_K_phi"] = np.abs(simple_K_phi)
+                    output_row["simple_rudder_turn_phi_per_delta_r"] = simple_phi_per_delta_r
+                    output_row["simple_rudder_limit_turn_phi_at_positive_delta_r_max"] = simple_phi_at_positive_limit
+                    output_row["simple_rudder_limit_turn_max_abs_phi"] = abs(simple_phi_at_positive_limit)
 
-            if calculate_linear_lateral_response:
-                linear = rudder_gain.calculate_linear_lateral_response_metrics_from_stab(
-                    stab_path, mass=float(mass), Ixx=Ixx, Izz=Izz, Ixz=Ixz,
-                    delta_r=float(delta_r), t_final=float(t_final),
-                    target_delta_phi=float(target_delta_phi),
-                    taylor_tau_eval=float(taylor_tau_eval),
-                    rho=rho, g=float(g), control_map=control_map,
-                    max_step=max_step, rtol=rtol, atol=atol,
-                )
-                output_row.update(linear)
+            # Inertia-retaining crosswind-gust roll-path index:
+            #
+            #   K_gust,roll =
+            #       8 Izz / (rho S b^3) * Cl_beta
+            #       + Cl_rhat * Cn_beta
+            #
+            # Positive gust input means wind from the aircraft right side.
+            # This reduced index assumes Ixz ~= 0 and removes the common positive
+            # factor mu_x * mu_z.  It is a static .stab-derived signed path index,
+            # so it does not require a time-marching gust simulation.
+            if inertia is not None:
+                rho_used = float(basic["Rho"] if rho is None else rho)
+                Sref = float(basic["Sref"])
+                Bref = float(basic["Bref"])
+                if (
+                    math.isfinite(rho_used)
+                    and rho_used > 0.0
+                    and math.isfinite(Sref)
+                    and Sref > 0.0
+                    and math.isfinite(Bref)
+                    and Bref > 0.0
+                ):
+                    output_row["crosswind_gust_roll_index"] = (
+                        8.0
+                        * Izz
+                        / (rho_used * Sref * Bref**3)
+                        * float(basic["Cl_beta"])
+                        + float(basic["Cl_r"])
+                        * float(basic["Cn_beta"])
+                    )
+                    output_row["crosswind_gust_roll_index_abs"] = abs(
+                        output_row["crosswind_gust_roll_index"]
+                    )
+
             if run_6dof:
                 history = rudder_gain.simulate_6dof_rudder_step_from_stab(
                     stab_path, mass=float(mass), Ixx=Ixx, Iyy=Iyy, Izz=Izz, Ixz=Ixz,
@@ -1550,7 +1714,7 @@ def postprocess_vv_gamma_cases(
                     stop_at_target_delta_phi=bool(stop_6dof_at_target_delta_phi),
                     target_delta_phi=float(target_delta_phi),
                 )
-                response = rudder_gain.calculate_roll_response_metric_by_delta_phi(
+                response = rudder_gain.calculate_roll_response_index_by_delta_phi(
                     history, delta_r=float(delta_r), target_delta_phi=float(target_delta_phi),
                     V=float(basic["Vinf"]), Bref=float(basic["Bref"]), phi0=float(phi0),
                 )
@@ -1587,7 +1751,7 @@ def postprocess_vv_gamma_cases(
                     gust_start_time=float(crosswind_gust_start_time),
                     max_step=max_step, rtol=rtol, atol=atol,
                 )
-                gust_response = rudder_gain.calculate_crosswind_gust_response_metrics(
+                gust_response = rudder_gain.calculate_crosswind_gust_response_indices(
                     gust_history, phi0=float(phi0), Vref=float(basic["Vinf"]), Bref=float(basic["Bref"])
                 )
                 output_row.update(gust_response)
@@ -1605,12 +1769,19 @@ def postprocess_vv_gamma_cases(
                         output_row["crosswind_gust_history_plot_path"] = str(gust_plot_path)
             if turn_trim_mode != "none":
                 try:
-                    output_row.update(calculate_turn_trim_metrics_from_stab(
-                        stab_path, mode=turn_trim_mode, mass=float(mass), rho=rho,
-                        phi=float(turn_trim_phi), delta_a=float(turn_trim_delta_a),
-                        initial_guess=turn_trim_initial_guess, bounds=turn_trim_bounds,
-                        residual_tol=float(turn_trim_residual_tol), control_map=control_map,
-                        g=float(g), verbose=verbose,
+                    output_row.update(calculate_turn_trim_indices_from_stab(
+                        stab_path,
+                        mode=turn_trim_mode,
+                        mass=float(mass),
+                        rho=rho,
+                        phi=float(turn_trim_phi),
+                        delta_a=float(turn_trim_delta_a),
+                        initial_guess=turn_trim_initial_guess,
+                        bounds=turn_trim_bounds,
+                        residual_tol=float(turn_trim_residual_tol),
+                        control_map=control_map,
+                        g=float(g),
+                        verbose=verbose,
                     ))
                 except Exception as exc:
                     output_row.update({
@@ -1628,6 +1799,40 @@ def postprocess_vv_gamma_cases(
                         "turn_trim_T": np.nan,
                         "turn_trim_delta_r_per_beta": np.nan,
                         "turn_trim_error": repr(exc),
+                    })
+            if rudder_limit_turn_mode != "none":
+                try:
+                    output_row.update(calculate_rudder_limit_turn_indices_from_stab(
+                        stab_path,
+                        mode=rudder_limit_turn_mode,
+                        mass=float(mass),
+                        delta_r_max=float(rudder_limit_turn_delta_r_max),
+                        rho=rho,
+                        delta_a=float(rudder_limit_turn_delta_a),
+                        initial_guess=rudder_limit_turn_initial_guess,
+                        bounds=rudder_limit_turn_bounds,
+                        residual_tol=float(rudder_limit_turn_residual_tol),
+                        control_map=control_map,
+                        g=float(g),
+                        verbose=verbose,
+                    ))
+                except Exception as exc:
+                    output_row.update({
+                        "rudder_limit_turn_mode": rudder_limit_turn_mode,
+                        "rudder_limit_turn_passed": False,
+                        "rudder_limit_turn_complete": False,
+                        "rudder_limit_turn_V": np.nan,
+                        "rudder_limit_turn_alpha": np.nan,
+                        "rudder_limit_turn_beta": np.nan,
+                        "rudder_limit_turn_phi": np.nan,
+                        "rudder_limit_turn_theta": np.nan,
+                        "rudder_limit_turn_Omega": np.nan,
+                        "rudder_limit_turn_delta_e": np.nan,
+                        "rudder_limit_turn_delta_a": np.nan,
+                        "rudder_limit_turn_delta_r": np.nan,
+                        "rudder_limit_turn_T": np.nan,
+                        "rudder_limit_turn_delta_r_per_beta": np.nan,
+                        "rudder_limit_turn_error": repr(exc),
                     })
             output_row["postprocess_passed"] = True
         except Exception as exc:
@@ -1668,38 +1873,15 @@ VV_GAMMA_LATEX_LABELS = {
     "CY_delta_r": r"$C_{Y\delta_r}$",
     "spiral_margin": r"$C_{l\beta}C_{n\hat{r}}-C_{n\beta}C_{l\hat{r}}$",
     "simple_turn_trim_delta_r_per_beta": r"$\left(\delta_r/\beta\right)=\frac{C_{l\beta}C_{n\hat{r}}-C_{n\beta}C_{l\hat{r}}}{C_{n\delta_r}C_{l\hat{r}}}$",
-    "sixdof_finite_time_roll_metric": r"$\frac{b}{2V}\frac{\Delta\phi/\Delta t}{\delta_r}$",
-    "sixdof_roll_response_metric_reference": r"$\frac{b}{2V}\frac{(\phi_f-\phi_0)/t_f}{\delta_r}$",
-    "linear_finite_time_roll_metric": r"$\frac{\Delta\phi_{lin}/\Delta\tau}{\delta_r}$",
-    "linear_roll_response_phi_rate_per_delta_r": r"$((\Delta\phi/\Delta t)/\delta_r)_{linear}$",
-    "linear_roll_response_fraction_of_target": r"$\Delta\phi_{lin,f}/\Delta\phi_{target}$",
-    "linear_taylor_K1": r"$K_1$",
-    "linear_taylor_K2": r"$K_2$",
-    "linear_taylor_K3": r"$K_3$",
-    "simple_K1_direct_roll": r"$K_{1,\delta_r\to l}$",
-    "simple_K2_sideforce_dihedral": r"$K_{2,Y\to\beta\to l}$",
-    "simple_K2_yawrate_roll": r"$K_{2,N\to r\to l}$",
-    "simple_K2_total": r"$K_{2,simple}$",
-    "simple_K3_yawrate_to_beta_dihedral": r"$K_{3,r\to\beta\to l}$",
-    "simple_K2_plus_K3_yawrate_roll_beta_dihedral": r"$K_{2,N\to r\to l}+K_{3,r\to\beta\to l}$",
-    "simple_roll_damping_rate": r"$\lambda_p$",
-    "simple_yaw_damping_rate": r"$\lambda_r$",
-    "simple_K3_yawrate_roll_damping_correction": r"$K_{2,N\to r\to l}(\lambda_p+\lambda_r)$",
-    "simple_K3_yawrate_beta_dihedral_damped": r"$K_{3,r\to\beta\to l}+K_{2,N\to r\to l}(\lambda_p+\lambda_r)$",
-    "simple_K3_reduced": r"$K_{3,simple}$",
-    "simple_turn_rate_full": r"$K_{turn,full}=\frac{1}{\mu_I I_x}C_{l\delta_r}+\frac{\mu_Y}{\mu_I I_x}C_{l\beta}C_{Y\delta_r}+(C_{l\hat{r}}-C_{l\beta})C_{n\delta_r}$",
-    "simple_turn_rate": r"$K_{turn}=(C_{l\hat{r}}-C_{l\beta})C_{n\delta_r}$",
-    "crosswind_gust_roll_metric": r"$K_{gust,roll}=-\left(\frac{m}{\rho S b}C_{l\beta}+C_{l\hat{r}}C_{n\beta}\right)$",
-    "linear_tau_final": r"$\tau_f$",
-    "linear_tau_reach": r"$\tau_{reach}$",
-    "initial_beta_prime_per_delta_r": r"$\beta\prime(0)/\delta_r$",
-    "initial_phat_prime_per_delta_r": r"$\hat{p}\prime(0)/\delta_r$",
-    "initial_rhat_prime_per_delta_r": r"$\hat{r}\prime(0)/\delta_r$",
-    "initial_phat_double_prime_per_delta_r": r"$\hat{p}\prime\prime(0)/\delta_r$",
-    "initial_phi_double_prime_per_delta_r": r"$\phi\prime\prime(0)/\delta_r$",
-    "initial_phi_triple_prime_per_delta_r": r"$\phi\prime\prime\prime(0)/\delta_r$",
-    "initial_mu_y": r"$\mu_Y$",
-    "initial_mu_inertia": r"$\mu_I$",
+    "simple_rudder_turn_K_phi": r"$\left|K_\phi\right|=\left|-\frac{C_{n\delta_r}}{C_{l\beta}C_{n\hat{r}}-C_{n\beta}C_{l\hat{r}}}\left(\frac{4m}{\rho S b}C_{l\beta}+C_{Y\beta}C_{l\hat{r}}\right)\right|$",
+    "simple_rudder_turn_phi_per_delta_r": r"$(\phi/\delta_r)_{simple}$",
+    "simple_rudder_limit_turn_phi_at_positive_delta_r_max": r"$\phi_{simple}(+\delta_{r,\max})\ [\mathrm{deg}]$",
+    "simple_rudder_limit_turn_max_abs_phi": r"$|\phi|_{\max,simple}\ [\mathrm{deg}]$",
+    "simple_rudder_roll_index": r"$K_{rudder,roll}=(C_{l\hat{r}}-C_{l\beta})C_{n\delta_r}$",
+    "sixdof_finite_time_roll_index": r"$\frac{b}{2V}\frac{\Delta\phi/\Delta t}{\delta_r}$",
+    "sixdof_roll_response_index_reference": r"$\frac{b}{2V}\frac{(\phi_f-\phi_0)/t_f}{\delta_r}$",
+    "crosswind_gust_roll_index": r"$K_{gust,roll}=\frac{8I_z}{\rho S b^3}C_{l\beta}+C_{l\hat{r}}C_{n\beta}$",
+    "crosswind_gust_roll_index_abs": r"$|K_{gust,roll}|$",
     "sixdof_roll_response_phi_rate_per_delta_r": r"$\{(\Delta\phi/\Delta t)/\delta_r\}_{6DOF}$",
     "sixdof_roll_response_fraction_of_target": r"$(\phi_f-\phi_0)/\Delta\phi_{target}$",
     "turn_trim_V": r"$V_{trim}$",
@@ -1712,18 +1894,33 @@ VV_GAMMA_LATEX_LABELS = {
     "turn_trim_delta_a": r"$\delta_{a,trim}\ [\mathrm{deg}]$",
     "turn_trim_delta_r": r"$\delta_{r,trim}\ [\mathrm{deg}]$",
     "turn_trim_T": r"$T_{trim}$",
-    "turn_trim_delta_r_per_beta": r"$\left(\delta_r/\beta\right)_{\mathrm{trim}}$",
+    "turn_trim_delta_r_per_beta": r"$(\delta_r/\beta)_{trim}$",
     "turn_trim_solution_beta": r"$\beta\ [\mathrm{deg}]$",
     "turn_trim_solution_delta_r": r"$\delta_r\ [\mathrm{deg}]$",
     "turn_trim_solution_Omega": r"$\Omega\ [\mathrm{deg/s}]$",
-    "linear_delta_r": r"$\delta_r\ [\mathrm{deg}]$",
-    "linear_target_delta_phi": r"$\Delta\phi_{target}\ [\mathrm{deg}]$",
-    "linear_roll_response_phi_rate": r"$(\Delta\phi/\Delta t)_{linear}\ [\mathrm{deg/s}]$",
+    "rudder_limit_turn_V": r"$V_{\delta_r,lim}$",
+    "rudder_limit_turn_alpha": r"$\alpha_{\delta_r,lim}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_beta": r"$\beta_{\delta_r,lim}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_phi": r"$\phi_{\delta_r,lim}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_max_abs_phi": r"$|\phi|_{\max,\delta_r}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_theta": r"$\theta_{\delta_r,lim}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_Omega": r"$\Omega_{\delta_r,lim}\ [\mathrm{deg/s}]$",
+    "rudder_limit_turn_delta_e": r"$\delta_{e,\delta_r,lim}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_delta_a": r"$\delta_{a,\delta_r,lim}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_delta_r": r"$\delta_{r,lim}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_delta_r_max": r"$\delta_{r,\max}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_limiting_delta_r": r"$\delta_{r,selected}\ [\mathrm{deg}]$",
+    "rudder_limit_turn_T": r"$T_{\delta_r,lim}$",
+    "rudder_limit_turn_delta_r_per_beta": r"$(\delta_r/\beta)_{\delta_r,lim}$",
+    "rudder_limit_turn_solution_beta": r"$\beta\ [\mathrm{deg}]$",
+    "rudder_limit_turn_solution_delta_r": r"$\delta_r\ [\mathrm{deg}]$",
+    "rudder_limit_turn_solution_Omega": r"$\Omega\ [\mathrm{deg/s}]$",
     "sixdof_delta_r": r"$\delta_r\ [\mathrm{deg}]$",
     "sixdof_target_delta_phi": r"$\Delta\phi_{target}\ [\mathrm{deg}]$",
     "sixdof_roll_response_phi_rate": r"$(\Delta\phi/\Delta t)_{6DOF}\ [\mathrm{deg/s}]$",
     "turn_trim_derived_sink_rate": r"$w_{\mathrm{sink}}$",
-    "turn_trim_max_abs_residual": r"$\max|r_i|$",
+    "rudder_limit_turn_derived_sink_rate": r"$w_{\mathrm{sink}}$",
+    "rudder_limit_turn_max_abs_residual": r"$\max|r_i|$",
 }
 
 def vv_gamma_latex_label(column_name: str) -> str:
@@ -1903,9 +2100,12 @@ def plot_vv_gamma_contour(
 ):
     """Plot a Vv-Gamma response-surface contour from completed results.
 
-    colorbar_ticks controls only the tick locations shown on the colorbar.
-    levels still controls the contour-fill boundaries.  x_ticks and y_ticks
-    optionally override the Vv and Gamma_eff axis tick locations.
+    When colorbar_ticks is specified and levels is an integer, the first and
+    last ticks define the contour color range.  levels controls the number of
+    contour intervals within that range.  When levels is an explicit sequence,
+    that sequence continues to define the contour boundaries directly.
+
+    x_ticks and y_ticks optionally override the Vv and Gamma_eff axis ticks.
     """
 
     import matplotlib.pyplot as plt
@@ -1928,12 +2128,45 @@ def plot_vv_gamma_contour(
     contour = None
     colorbar = None
     if surface["zz"] is not None:
+        contour_levels = levels
+        extend = "neither"
+
+        if colorbar_ticks is not None and isinstance(levels, (int, np.integer)):
+            colorbar_ticks = np.asarray(colorbar_ticks, dtype=float)
+            if (
+                colorbar_ticks.size < 2
+                or not np.all(np.isfinite(colorbar_ticks))
+                or np.any(np.diff(colorbar_ticks) <= 0.0)
+            ):
+                raise ValueError(
+                    "colorbar_ticks must contain at least two finite, "
+                    "strictly increasing values."
+                )
+
+            contour_min = float(colorbar_ticks[0])
+            contour_max = float(colorbar_ticks[-1])
+            contour_levels = np.linspace(
+                contour_min,
+                contour_max,
+                int(levels) + 1,
+            )
+
+            data_min = float(np.nanmin(surface["zz"]))
+            data_max = float(np.nanmax(surface["zz"]))
+            if data_min < contour_min and data_max > contour_max:
+                extend = "both"
+            elif data_min < contour_min:
+                extend = "min"
+            elif data_max > contour_max:
+                extend = "max"
+
         contour = ax.contourf(
             surface["xx"],
             surface["yy"],
             surface["zz"],
-            levels=levels,
+            levels=contour_levels,
             cmap="jet",
+            extend=extend,
         )
         if show_colorbar:
             colorbar = ax.figure.colorbar(contour, ax=ax, ticks=colorbar_ticks)

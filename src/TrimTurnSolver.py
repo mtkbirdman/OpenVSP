@@ -656,3 +656,149 @@ def solve_steady_gliding_turn(
             "control_groups": stab.control_groups,
         },
     }
+
+def solve_rudder_limit_turn(
+    stab_path: str | os.PathLike,
+    mass: float,
+    delta_r_max: float,
+    *,
+    mode: str = "gliding",
+    V: float | None = None,
+    delta_a: float = 0.0,
+    rho: float | None = None,
+    initial_guess: Mapping[str, float] | None = None,
+    g: float = 9.80665,
+    bounds: tuple[Mapping[str, float], Mapping[str, float]] | None = None,
+    control_map: Mapping[str, str] | None = None,
+    residual_tol: float = 1e-6,
+    verbose: int | bool = 0,
+) -> dict:
+    """Solve both rudder-limit turns and select the largest absolute bank angle.
+
+    The solved endpoint cases are
+
+        V = V0, delta_a = constant, delta_r = -delta_r_max
+        V = V0, delta_a = constant, delta_r = +delta_r_max
+
+    where V0 is read from the .stab file unless V is supplied explicitly.  Each
+    endpoint is solved with the existing steady level- or gliding-turn solver.
+    The accepted endpoint with the largest ``abs(phi)`` is returned through the
+    ordinary top-level ``solution``, ``derived``, ``coefficients``, and
+    ``residuals`` entries.  The two complete endpoint results remain available
+    as ``negative_trim`` and ``positive_trim``.
+
+    This is an exact numerical solution of the nonlinear steady-turn equations
+    used by this module, with the .stab linear aerodynamic model.  It is not a
+    closed-form analytic solution and does not prove monotonicity between zero
+    rudder and the two rudder limits.
+    """
+
+    if mode not in {"level", "gliding"}:
+        raise ValueError("mode must be 'level' or 'gliding'.")
+
+    delta_r_max = float(delta_r_max)
+    if not math.isfinite(delta_r_max) or delta_r_max <= 0.0:
+        raise ValueError("delta_r_max must be positive and finite.")
+
+    delta_a = float(delta_a)
+    if not math.isfinite(delta_a):
+        raise ValueError("delta_a must be finite.")
+
+    stab = read_vspaero_stab(stab_path)
+    V_used = float(stab.V0 if V is None else V)
+    if not math.isfinite(V_used) or V_used <= 0.0:
+        raise ValueError("V must be positive, or the .stab file must contain a positive Vinf.")
+
+    solver = solve_steady_level_turn if mode == "level" else solve_steady_gliding_turn
+    trim_verbose = 1 if verbose and int(verbose) >= 2 else 0
+    endpoint_trims: dict[str, dict] = {}
+
+    for side, delta_r in (("negative", -delta_r_max), ("positive", delta_r_max)):
+        fixed = {"V": V_used, "delta_a": delta_a, "delta_r": delta_r}
+        try:
+            endpoint_trims[side] = solver(
+                fixed,
+                stab_path,
+                mass,
+                rho=rho,
+                initial_guess=initial_guess,
+                g=g,
+                bounds=bounds,
+                control_map=control_map,
+                residual_tol=residual_tol,
+                verbose=trim_verbose,
+            )
+        except Exception as exc:
+            endpoint_trims[side] = {
+                "passed": False,
+                "message": repr(exc),
+                "fixed": fixed,
+                "solution": {},
+                "derived": {},
+                "coefficients": {},
+                "residuals": {},
+                "max_abs_residual": math.nan,
+                "cost": math.nan,
+                "nfev": 0,
+            }
+
+    accepted = [
+        (side, trim)
+        for side, trim in endpoint_trims.items()
+        if bool(trim.get("passed", False))
+        and math.isfinite(float((trim.get("solution", {}) or {}).get("phi", math.nan)))
+    ]
+    both_sides_passed = len(accepted) == 2
+
+    if not accepted:
+        return {
+            "passed": False,
+            "message": "Neither rudder-limit endpoint produced an accepted turn-trim solution.",
+            "mode": f"{mode}_rudder_limit_turn",
+            "rudder_limit_mode": mode,
+            "rudder_limit_complete": False,
+            "selected_side": "",
+            "delta_r_max": delta_r_max,
+            "limiting_delta_r": math.nan,
+            "max_abs_phi": math.nan,
+            "fixed_V": V_used,
+            "fixed_delta_a": delta_a,
+            "solution": {},
+            "derived": {},
+            "coefficients": {},
+            "residuals": {},
+            "max_abs_residual": math.nan,
+            "cost": math.nan,
+            "nfev": 0,
+            "negative_trim": endpoint_trims["negative"],
+            "positive_trim": endpoint_trims["positive"],
+        }
+
+    selected_side, selected_trim = max(
+        accepted,
+        key=lambda item: abs(float(item[1]["solution"]["phi"])),
+    )
+    result = dict(selected_trim)
+    result["solver_message"] = selected_trim.get("message", "")
+    result["message"] = (
+        f"Selected the {selected_side} rudder-limit endpoint from "
+        f"{len(accepted)} accepted endpoint solution(s)."
+    )
+    result.update(
+        {
+            "passed": True,
+            "mode": f"{mode}_rudder_limit_turn",
+            "rudder_limit_mode": mode,
+            "rudder_limit_complete": both_sides_passed,
+            "selected_side": selected_side,
+            "delta_r_max": delta_r_max,
+            "limiting_delta_r": float(selected_trim["solution"]["delta_r"]),
+            "max_abs_phi": abs(float(selected_trim["solution"]["phi"])),
+            "fixed_V": V_used,
+            "fixed_delta_a": delta_a,
+            "negative_trim": endpoint_trims["negative"],
+            "positive_trim": endpoint_trims["positive"],
+        }
+    )
+    return result
+
