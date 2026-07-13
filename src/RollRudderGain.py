@@ -22,7 +22,6 @@ using the instantaneous alpha and beta.
 """
 from __future__ import annotations
 
-import importlib
 import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -30,89 +29,13 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
-from .TrimTurnSolver import (
-    resolve_control_columns_from_stab,
+from .VSPAEROStab import (
+    evaluate_stab_linear_aero, 
+    solver_axis_derivative_value,
     read_vspaero_stab,
+    resolve_control_columns_from_stab,
+    stab_coefficient_value,
 )
-
-def _stab_value(stab, coef: str, column: str) -> float:
-    if coef not in stab.derivatives.index:
-        raise KeyError(f"Coefficient row {coef!r} was not found in {stab.path}.")
-    if column not in stab.derivatives.columns:
-        raise KeyError(f"Derivative column {column!r} was not found in {stab.path}.")
-    return float(stab.derivatives.loc[coef, column])
-
-def _evaluate_stab_linear_coefficients(
-    stab,
-    increments: Mapping[str, float],
-    *,
-    alpha: float,
-    beta: float,
-) -> dict[str, float]:
-    """
-    Evaluate .stab linear aero and convert wind-axis forces to solver body axes.
-
-    .stab CFx/CFy/CFz are retained only as raw diagnostic values. The 6DOF
-    solver uses CX/CY/CZ built from CL/CD/CS for the solver body axes:
-    +x forward, +y right, +z down.
-    """
-    coefficients: dict[str, float] = {}
-    for coef_name in ["CL", "CD", "CS", "CMl", "CMm", "CMn"]:
-        row = stab.derivatives.loc[coef_name]
-        value = float(row["Base"])
-        for derivative_name, increment in increments.items():
-            if derivative_name in row.index:
-                value += float(row[derivative_name]) * float(increment)
-        coefficients[coef_name] = value
-
-    for coef_name in ["CFx", "CFy", "CFz"]:
-        if coef_name in stab.derivatives.index:
-            row = stab.derivatives.loc[coef_name]
-            value = float(row["Base"])
-            for derivative_name, increment in increments.items():
-                if derivative_name in row.index:
-                    value += float(row[derivative_name]) * float(increment)
-            coefficients[f"{coef_name}_raw"] = value
-
-    CL = coefficients["CL"]
-    CD = coefficients["CD"]
-    CS = coefficients["CS"]
-    axial_opposite_forward = CD * math.cos(beta) + CS * math.sin(beta)
-    coefficients["CX"] = -axial_opposite_forward * math.cos(alpha) + CL * math.sin(alpha)
-    coefficients["CY"] = -CD * math.sin(beta) + CS * math.cos(beta)
-    coefficients["CZ"] = -axial_opposite_forward * math.sin(alpha) - CL * math.cos(alpha)
-    coefficients["Cl"] = coefficients["CMl"]
-    coefficients["Cm"] = coefficients["CMm"]
-    coefficients["Cn"] = coefficients["CMn"]
-    return coefficients
-
-def _solver_axis_derivative_value(stab, coef: str, column: str) -> float:
-    """Return a derivative for solver-axis coefficients, including derived CY."""
-    alias = {"Cl": "CMl", "Cm": "CMm", "Cn": "CMn"}
-    if coef in alias:
-        return _stab_value(stab, alias[coef], column)
-    if coef in {"CL", "CD", "CS", "CMl", "CMm", "CMn", "CFx", "CFy", "CFz"}:
-        return _stab_value(stab, coef, column)
-    if coef not in {"CX", "CY", "CZ"}:
-        raise KeyError(f"Unsupported solver-axis coefficient {coef!r}.")
-
-    eps = 1.0e-6
-    increments: dict[str, float] = {column: eps}
-    alpha = stab.alpha0 + (eps if column == "Alpha" else 0.0)
-    beta = stab.beta0 + (eps if column == "Beta" else 0.0)
-    base = _evaluate_stab_linear_coefficients(stab, {}, alpha=stab.alpha0, beta=stab.beta0)[coef]
-    perturbed = _evaluate_stab_linear_coefficients(stab, increments, alpha=alpha, beta=beta)[coef]
-    return float((perturbed - base) / eps)
-
-def solver_axis_derivative_value_from_stab(stab, coef: str, column: str) -> float:
-    """Return a .stab derivative in the solver-axis coefficient convention.
-
-    This is the public wrapper used by higher-level post-processing code.
-    For CY/CX/CZ it returns the derivative after converting CL/CD/CS to the
-    solver body axes (+x forward, +y right, +z down). For Cl/Cm/Cn it maps to
-    the VSPAERO CMl/CMm/CMn rows.
-    """
-    return _solver_axis_derivative_value(stab, coef, column)
 
 def calculate_quasi_steady_rudder_roll_gain_from_stab(
     stab_path: str | Path,
@@ -132,28 +55,28 @@ def calculate_quasi_steady_rudder_roll_gain_from_stab(
     matrix = np.array(
         [
             [
-                _solver_axis_derivative_value(stab, side_force_coef, "Beta"),
-                _solver_axis_derivative_value(stab, side_force_coef, "p"),
-                _solver_axis_derivative_value(stab, side_force_coef, "r"),
+                solver_axis_derivative_value(stab, side_force_coef, "Beta"),
+                solver_axis_derivative_value(stab, side_force_coef, "p"),
+                solver_axis_derivative_value(stab, side_force_coef, "r"),
             ],
             [
-                _solver_axis_derivative_value(stab, roll_moment_coef, "Beta"),
-                _solver_axis_derivative_value(stab, roll_moment_coef, "p"),
-                _solver_axis_derivative_value(stab, roll_moment_coef, "r"),
+                solver_axis_derivative_value(stab, roll_moment_coef, "Beta"),
+                solver_axis_derivative_value(stab, roll_moment_coef, "p"),
+                solver_axis_derivative_value(stab, roll_moment_coef, "r"),
             ],
             [
-                _solver_axis_derivative_value(stab, yaw_moment_coef, "Beta"),
-                _solver_axis_derivative_value(stab, yaw_moment_coef, "p"),
-                _solver_axis_derivative_value(stab, yaw_moment_coef, "r"),
+                solver_axis_derivative_value(stab, yaw_moment_coef, "Beta"),
+                solver_axis_derivative_value(stab, yaw_moment_coef, "p"),
+                solver_axis_derivative_value(stab, yaw_moment_coef, "r"),
             ],
         ],
         dtype=float,
     )
     rhs = -np.array(
         [
-            _solver_axis_derivative_value(stab, side_force_coef, rudder_column),
-            _solver_axis_derivative_value(stab, roll_moment_coef, rudder_column),
-            _solver_axis_derivative_value(stab, yaw_moment_coef, rudder_column),
+            solver_axis_derivative_value(stab, side_force_coef, rudder_column),
+            solver_axis_derivative_value(stab, roll_moment_coef, rudder_column),
+            solver_axis_derivative_value(stab, yaw_moment_coef, rudder_column),
         ],
         dtype=float,
     )
@@ -258,20 +181,20 @@ def calculate_linear_lateral_response_indices_from_stab(
     lambda_g = float(g) * Bref / (2.0 * V * V)
     alpha0 = float(stab.alpha0)
 
-    CY_beta = _solver_axis_derivative_value(stab, side_force_coef, "Beta")
-    CY_phat = _solver_axis_derivative_value(stab, side_force_coef, "p")
-    CY_rhat = _solver_axis_derivative_value(stab, side_force_coef, "r")
-    CY_delta_r = _solver_axis_derivative_value(stab, side_force_coef, rudder_column)
+    CY_beta = solver_axis_derivative_value(stab, side_force_coef, "Beta")
+    CY_phat = solver_axis_derivative_value(stab, side_force_coef, "p")
+    CY_rhat = solver_axis_derivative_value(stab, side_force_coef, "r")
+    CY_delta_r = solver_axis_derivative_value(stab, side_force_coef, rudder_column)
 
-    Cl_beta = _solver_axis_derivative_value(stab, roll_moment_coef, "Beta")
-    Cl_phat = _solver_axis_derivative_value(stab, roll_moment_coef, "p")
-    Cl_rhat = _solver_axis_derivative_value(stab, roll_moment_coef, "r")
-    Cl_delta_r = _solver_axis_derivative_value(stab, roll_moment_coef, rudder_column)
+    Cl_beta = solver_axis_derivative_value(stab, roll_moment_coef, "Beta")
+    Cl_phat = solver_axis_derivative_value(stab, roll_moment_coef, "p")
+    Cl_rhat = solver_axis_derivative_value(stab, roll_moment_coef, "r")
+    Cl_delta_r = solver_axis_derivative_value(stab, roll_moment_coef, rudder_column)
 
-    Cn_beta = _solver_axis_derivative_value(stab, yaw_moment_coef, "Beta")
-    Cn_phat = _solver_axis_derivative_value(stab, yaw_moment_coef, "p")
-    Cn_rhat = _solver_axis_derivative_value(stab, yaw_moment_coef, "r")
-    Cn_delta_r = _solver_axis_derivative_value(stab, yaw_moment_coef, rudder_column)
+    Cn_beta = solver_axis_derivative_value(stab, yaw_moment_coef, "Beta")
+    Cn_phat = solver_axis_derivative_value(stab, yaw_moment_coef, "p")
+    Cn_rhat = solver_axis_derivative_value(stab, yaw_moment_coef, "r")
+    Cn_delta_r = solver_axis_derivative_value(stab, yaw_moment_coef, rudder_column)
 
     A = np.array(
         [
@@ -619,7 +542,13 @@ def _linear_aero_from_stab(
     for delta_name, column_name in control_columns.items():
         if column_name in stab.derivatives.columns:
             increments[column_name] = float(controls.get(delta_name, 0.0))
-    coefficients = _evaluate_stab_linear_coefficients(stab, increments, alpha=alpha, beta=beta)
+    coefficients = evaluate_stab_linear_aero(
+        stab,
+        increments,
+        alpha=alpha,
+        beta=beta,
+        include_raw_force_coefficients=True,
+    )
     coefficients.update(
         {
             "V": V,
@@ -690,7 +619,7 @@ def _resolve_initial_controls(
 
     # Evaluate CMm with delta_e = 0 while retaining delta_a and delta_r.
     cm_without_elevator = _linear_aero_from_stab(stab, state0, controls, control_columns)["CMm"]
-    cm_delta_e = _stab_value(stab, "CMm", elevator_column)
+    cm_delta_e = stab_coefficient_value(stab, "CMm", elevator_column)
     if abs(cm_delta_e) < 1.0e-14:
         raise ZeroDivisionError(f"Elevator pitch derivative is too small: CMm/{elevator_column}={cm_delta_e}")
     controls["delta_e"] = -cm_without_elevator / cm_delta_e
@@ -790,7 +719,7 @@ def simulate_6dof_rudder_step_from_stab(
     if theta_hold:
         if elevator_column is None or elevator_column not in stab.derivatives.columns:
             raise KeyError("Could not resolve elevator control column for theta_hold=True.")
-        cm_delta_e = _stab_value(stab, "CMm", elevator_column)
+        cm_delta_e = stab_coefficient_value(stab, "CMm", elevator_column)
         if abs(cm_delta_e) < 1.0e-14:
             raise ZeroDivisionError(f"Elevator pitch derivative is too small: CMm/{elevator_column}={cm_delta_e}")
 
@@ -1053,7 +982,7 @@ def simulate_6dof_crosswind_gust_from_stab(
     if theta_hold:
         if elevator_column is None or elevator_column not in stab.derivatives.columns:
             raise KeyError("Could not resolve elevator control column for theta_hold=True.")
-        cm_delta_e = _stab_value(stab, "CMm", elevator_column)
+        cm_delta_e = stab_coefficient_value(stab, "CMm", elevator_column)
         if abs(cm_delta_e) < 1.0e-14:
             raise ZeroDivisionError(f"Elevator pitch derivative is too small: CMm/{elevator_column}={cm_delta_e}")
 
@@ -1492,11 +1421,11 @@ def simulate_reduced_lateral_response_from_stab(
     tau_per_second = 2.0 * V / Bref
     mu_inertia = qbar * Sref * Bref**3 / (4.0 * V * V * inertia_det)
 
-    Cl_beta = _solver_axis_derivative_value(stab, roll_moment_coef, "Beta")
-    Cl_phat = _solver_axis_derivative_value(stab, roll_moment_coef, "p")
-    Cl_rhat = _solver_axis_derivative_value(stab, roll_moment_coef, "r")
-    Cn_rhat = _solver_axis_derivative_value(stab, yaw_moment_coef, "r")
-    Cn_delta_r = _solver_axis_derivative_value(stab, yaw_moment_coef, rudder_column)
+    Cl_beta = solver_axis_derivative_value(stab, roll_moment_coef, "Beta")
+    Cl_phat = solver_axis_derivative_value(stab, roll_moment_coef, "p")
+    Cl_rhat = solver_axis_derivative_value(stab, roll_moment_coef, "r")
+    Cn_rhat = solver_axis_derivative_value(stab, yaw_moment_coef, "r")
+    Cn_delta_r = solver_axis_derivative_value(stab, yaw_moment_coef, rudder_column)
 
     tau = tau_per_second * (time_values - time_values[0])
     delta_r = float(delta_r)

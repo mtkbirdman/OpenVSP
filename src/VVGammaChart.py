@@ -45,18 +45,24 @@ from .util import (
     SWEEP_LOCATION_NAMES,
     SWEEP_NAMES,
     TIP_CHORD_NAMES,
+    XFORM_GROUP_NAMES,
+    X_LOCATION_NAMES,
     find_one_geom,
-    geom_x_location,
+    get_geom_parm_value,
     get_xsec_value,
     import_openvsp,
-    set_geom_x_location,
+    set_geom_parm_value,
     set_wing_section_driver_for_scaling,
     set_xsec_value,
     workdir,
 )
-from .TrimTurnSolver import (
+from .VSPAEROAero import evaluate_stab_linear_aero, solver_axis_derivative_value
+from .VSPAEROStab import (
     read_vspaero_stab,
     resolve_control_columns_from_stab,
+    stab_coefficient_value,
+)
+from .TrimTurnSolver import (
     solve_rudder_limit_turn,
     solve_steady_gliding_turn,
     solve_steady_level_turn,
@@ -172,22 +178,6 @@ def wing_planform_summary(section_table: pd.DataFrame) -> dict[str, float]:
         "quarter_chord_x_local": quarter_chord_x_local,
     }
 
-def _geom_parm_value(
-    vsp,
-    geom_id: str,
-    parm_names: Sequence[str],
-    group_names: Sequence[str],
-    default: float | None = None,
-) -> float:
-    for group_name in group_names:
-        for parm_name in parm_names:
-            parm_id = vsp.FindParm(geom_id, parm_name, group_name)
-            if parm_id and str(parm_id).upper() != "NONE":
-                return float(vsp.GetParmVal(parm_id))
-    if default is None:
-        raise KeyError(f"None of these Geom parameters were found: parms={list(parm_names)}, groups={list(group_names)}")
-    return float(default)
-
 def _reference_wing_summary_from_loaded(
     vsp,
     *,
@@ -226,14 +216,14 @@ def _reference_wing_summary_from_loaded(
     sections = _read_wing_section_table_from_loaded(vsp, geom_id, surf_index=surf_index)
     section_summary = wing_planform_summary(sections)
 
-    area = _geom_parm_value(
+    area = get_geom_parm_value(
         vsp,
         geom_id,
         ("TotalArea", "Total_Area", "Area"),
         ("WingGeom",),
         default=section_summary["area"],
     )
-    span = _geom_parm_value(
+    span = get_geom_parm_value(
         vsp,
         geom_id,
         ("TotalSpan", "Total_Span", "Span"),
@@ -388,7 +378,9 @@ def update_vtail_volume(
     before_sections = _read_wing_section_table_from_loaded(vsp, geom_id, surf_index=surf_index)
     before_summary = wing_planform_summary(before_sections)
 
-    x_location_original = geom_x_location(vsp, geom_id)
+    x_location_original = get_geom_parm_value(
+        vsp, geom_id, X_LOCATION_NAMES, XFORM_GROUP_NAMES
+    )
     x_ac_original = x_location_original + before_summary["quarter_chord_x_local"]
     lv_original = x_ac_original - float(xcg)
     if not math.isfinite(lv_original) or lv_original <= 0.0:
@@ -417,11 +409,15 @@ def update_vtail_volume(
     after_sections = _read_wing_section_table_from_loaded(vsp, geom_id, surf_index=surf_index)
     after_summary = wing_planform_summary(after_sections)
 
-    x_location_before_shift = geom_x_location(vsp, geom_id)
+    x_location_before_shift = get_geom_parm_value(
+        vsp, geom_id, X_LOCATION_NAMES, XFORM_GROUP_NAMES
+    )
     x_ac_before_shift = x_location_before_shift + after_summary["quarter_chord_x_local"]
     delta_x = x_ac_original - x_ac_before_shift
     x_location_after = x_location_before_shift + delta_x
-    set_geom_x_location(vsp, geom_id, x_location_after)
+    set_geom_parm_value(
+        vsp, geom_id, X_LOCATION_NAMES, XFORM_GROUP_NAMES, x_location_after
+    )
     vsp.Update()
 
     x_ac_after = x_location_after + after_summary["quarter_chord_x_local"]
@@ -614,13 +610,6 @@ def _import_roll_rudder_gain():
     except Exception:
         return importlib.import_module("RollRudderGain")
 
-def _stab_derivative(stab, coef: str, column: str) -> float:
-    if coef not in stab.derivatives.index:
-        raise KeyError(f"Coefficient row '{coef}' was not found in .stab derivatives.")
-    if column not in stab.derivatives.columns:
-        raise KeyError(f"Derivative column '{column}' was not found in .stab derivatives.")
-    return float(stab.derivatives.loc[coef, column])
-
 def calculate_stab_basic_indices(
     stab_path: str | os.PathLike,
     *,
@@ -638,24 +627,23 @@ def calculate_stab_basic_indices(
     aileron_column = control_columns.get("delta_a")
     elevator_column = control_columns.get("delta_e")
 
-    cl_alpha = _stab_derivative(stab, "CL", "Alpha")
-    cl_beta = _stab_derivative(stab, "CMl", "Beta")
-    cn_beta = _stab_derivative(stab, "CMn", "Beta")
-    cl_p = _stab_derivative(stab, "CMl", "p")
-    cl_r = _stab_derivative(stab, "CMl", "r")
-    cn_p = _stab_derivative(stab, "CMn", "p")
-    cn_r = _stab_derivative(stab, "CMn", "r")
-    rudder_gain = _import_roll_rudder_gain()
-    cs_beta = _stab_derivative(stab, "CS", "Beta")
-    cs_p = _stab_derivative(stab, "CS", "p")
-    cs_r = _stab_derivative(stab, "CS", "r")
-    cy_beta = rudder_gain.solver_axis_derivative_value_from_stab(stab, "CY", "Beta")
-    cy_p = rudder_gain.solver_axis_derivative_value_from_stab(stab, "CY", "p")
-    cy_r = rudder_gain.solver_axis_derivative_value_from_stab(stab, "CY", "r")
-    cl_delta_r = _stab_derivative(stab, "CMl", rudder_column) if rudder_column else math.nan
-    cn_delta_r = _stab_derivative(stab, "CMn", rudder_column) if rudder_column else math.nan
-    cs_delta_r = _stab_derivative(stab, "CS", rudder_column) if rudder_column else math.nan
-    cy_delta_r = rudder_gain.solver_axis_derivative_value_from_stab(stab, "CY", rudder_column) if rudder_column else math.nan
+    cl_alpha = stab_coefficient_value(stab, "CL", "Alpha")
+    cl_beta = stab_coefficient_value(stab, "CMl", "Beta")
+    cn_beta = stab_coefficient_value(stab, "CMn", "Beta")
+    cl_p = stab_coefficient_value(stab, "CMl", "p")
+    cl_r = stab_coefficient_value(stab, "CMl", "r")
+    cn_p = stab_coefficient_value(stab, "CMn", "p")
+    cn_r = stab_coefficient_value(stab, "CMn", "r")
+    cs_beta = stab_coefficient_value(stab, "CS", "Beta")
+    cs_p = stab_coefficient_value(stab, "CS", "p")
+    cs_r = stab_coefficient_value(stab, "CS", "r")
+    cy_beta = solver_axis_derivative_value(stab, "CY", "Beta")
+    cy_p = solver_axis_derivative_value(stab, "CY", "p")
+    cy_r = solver_axis_derivative_value(stab, "CY", "r")
+    cl_delta_r = stab_coefficient_value(stab, "CMl", rudder_column) if rudder_column else math.nan
+    cn_delta_r = stab_coefficient_value(stab, "CMn", rudder_column) if rudder_column else math.nan
+    cs_delta_r = stab_coefficient_value(stab, "CS", rudder_column) if rudder_column else math.nan
+    cy_delta_r = solver_axis_derivative_value(stab, "CY", rudder_column) if rudder_column else math.nan
 
     spiral_margin = cl_beta * cn_r - cn_beta * cl_r
     simple_rudder_roll_index = (cl_r - cl_beta) * cn_delta_r
@@ -719,30 +707,18 @@ def calculate_stab_basic_indices(
             column_name = f"{coef_name}_Base" if derivative_name == "Base" else f"{coef_name}_{derivative_name}"
             indices[column_name] = float(value)
 
-    # VSPAERO writes side force as CS.  For plotting in the usual solver body-axis
-    # convention, also write CY_* using CY = -CD sin(beta0) + CS cos(beta0).
-    if "CD" in stab.derivatives.index and "CS" in stab.derivatives.index:
-        beta0 = float(stab.beta0)
-        cd_row = stab.derivatives.loc["CD"]
-        cs_row = stab.derivatives.loc["CS"]
-        indices["CY_Base"] = -float(cd_row["Base"]) * math.sin(beta0) + float(cs_row["Base"]) * math.cos(beta0)
-        for derivative_name in stab.derivatives.columns:
-            if derivative_name == "Base":
-                continue
-            if derivative_name not in cd_row.index or derivative_name not in cs_row.index:
-                continue
-            if derivative_name == "Beta":
-                indices["CY_Beta"] = (
-                    -float(cd_row["Base"]) * math.cos(beta0)
-                    -float(cd_row["Beta"]) * math.sin(beta0)
-                    +float(cs_row["Beta"]) * math.cos(beta0)
-                    -float(cs_row["Base"]) * math.sin(beta0)
-                )
-            else:
-                indices[f"CY_{derivative_name}"] = (
-                    -float(cd_row[derivative_name]) * math.sin(beta0)
-                    +float(cs_row[derivative_name]) * math.cos(beta0)
-                )
+    # Export solver-axis CY from the same CL/CD/CS conversion used by the trim
+    # and 6DOF modules.  This keeps the chart table and simulations on one
+    # coefficient convention.
+    base_solver_aero = evaluate_stab_linear_aero(
+        stab, {}, alpha=stab.alpha0, beta=stab.beta0
+    )
+    indices["CY_Base"] = base_solver_aero["CY"]
+    for derivative_name in stab.derivatives.columns:
+        if derivative_name != "Base":
+            indices[f"CY_{derivative_name}"] = solver_axis_derivative_value(
+                stab, "CY", derivative_name
+            )
 
     return indices
 

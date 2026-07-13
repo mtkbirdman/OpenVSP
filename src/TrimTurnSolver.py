@@ -42,13 +42,17 @@ ConGrp_1, ConGrp_2, ... to delta_a, delta_e, and delta_r.
 from __future__ import annotations
 import math
 import os
-import re
-from dataclasses import dataclass
-
 from typing import Mapping
+
 import numpy as np
-import pandas as pd
 from scipy.optimize import least_squares
+
+from .VSPAEROStab import (
+    evaluate_stab_linear_aero,
+    VSPAEROStab,
+    read_vspaero_stab,
+    resolve_control_columns_from_stab,
+)
 
 TURN_PARAMETERS = [
     "V",
@@ -73,161 +77,7 @@ GLIDING_TURN_PARAMETERS = [
     "delta_a",
     "delta_r",
 ]
-AERO_COEFFICIENTS = ["CL", "CD", "CS", "CMl", "CMm", "CMn"]
-BASE_AERO_COLUMNS = ["CFx", "CFy", "CFz", "CMx", "CMy", "CMz", "CL", "CD", "CS", "CMl", "CMm", "CMn"]
-STABILITY_CASE_NAMES = {"Base_Aero", "Alpha", "Beta", "Roll__Rate", "Pitch_Rate", "Yaw___Rate", "Mach"}
-STAB_DERIVATIVE_COLUMNS = [
-    "Alpha",
-    "Beta",
-    "p",
-    "q",
-    "r",
-    "Mach",
-    "U",
-    "ConGrp_1",
-    "ConGrp_2",
-    "ConGrp_3",
-]
-CONTROL_NAME_HINTS = {
-    "delta_a": "AILERON",
-    "delta_e": "ELEVATOR",
-    "delta_r": "RUDDER",
-}
-CONTROL_COLUMNS_FALLBACK = {
-    "delta_a": "ConGrp_1",
-    "delta_e": "ConGrp_2",
-    "delta_r": "ConGrp_3",
-}
 
-@dataclass
-class VSPAEROStab:
-    """Parsed values from a VSPAERO .stab file."""
-    path: str
-    references: dict
-    base_condition: dict
-    base_aero: dict
-    derivatives: pd.DataFrame
-    control_groups: dict
-
-    @property
-    def Sref(self) -> float:
-        return float(self.references["Sref"])
-
-    @property
-    def Cref(self) -> float:
-        return float(self.references["Cref"])
-
-    @property
-    def Bref(self) -> float:
-        return float(self.references["Bref"])
-
-    @property
-    def alpha0(self) -> float:
-        return math.radians(float(self.base_condition.get("AoA", 0.0)))
-
-    @property
-    def beta0(self) -> float:
-        return math.radians(float(self.base_condition.get("Beta", 0.0)))
-
-    @property
-    def V0(self) -> float:
-        return float(self.base_condition.get("Vinf", 0.0) or 0.0)
-
-    @property
-    def rho0(self) -> float | None:
-        value = self.base_condition.get("Rho")
-        return None if value is None else float(value)
-
-def _clean_stab_name(name: str) -> str:
-    name = name.strip()
-    return name[:-1] if name.endswith("_") else name
-
-def read_vspaero_stab(stab_path: str | os.PathLike) -> VSPAEROStab:
-    """
-    Read the parts of a VSPAERO .stab file needed by solve_steady_level_turn().
-    This parser is intentionally narrow: it reads the standard scalar header,
-    the Base_Aero row, the control-group case rows, and the derivative table
-    headed by "Coef Base Aero".
-    """
-    stab_path = os.fspath(stab_path)
-    with open(stab_path, "r", encoding="utf-8", errors="ignore") as file:
-        lines = file.readlines()
-    scalar_values = {}
-    for line in lines:
-        if line.lstrip().startswith("Case"):
-            break
-        match = re.match(r"^\s*([A-Za-z][A-Za-z0-9_]*_?)\s+([-+]?\d+(?:\.\d*)?(?:[Ee][-+]?\d+)?)\b", line)
-        if match:
-            scalar_values[_clean_stab_name(match.group(1))] = float(match.group(2))
-    references = {
-        "Sref": scalar_values["Sref"],
-        "Cref": scalar_values["Cref"],
-        "Bref": scalar_values["Bref"],
-        "Xcg": scalar_values.get("Xcg"),
-        "Ycg": scalar_values.get("Ycg"),
-        "Zcg": scalar_values.get("Zcg"),
-    }
-    base_condition = {
-        "Mach": scalar_values.get("Mach"),
-        "AoA": scalar_values.get("AoA", 0.0),
-        "Beta": scalar_values.get("Beta", 0.0),
-        "Rho": scalar_values.get("Rho"),
-        "Vinf": scalar_values.get("Vinf", 0.0),
-    }
-    base_aero = None
-    derivative_start = None
-    control_group_names = []
-    for index, line in enumerate(lines):
-        if line.lstrip().startswith("Base_Aero"):
-            parts = line.split()
-            base_aero = {name: float(value) for name, value in zip(BASE_AERO_COLUMNS, parts[3:15])}
-        parts = line.split()
-        if len(parts) >= 15 and parts[0] not in STABILITY_CASE_NAMES and not parts[0].startswith("#"):
-            try:
-                float(parts[1])
-            except ValueError:
-                pass
-            else:
-                control_group_names.append(parts[0])
-        if line.lstrip().startswith("Coef") and "Alpha" in line and "ConGrp_1" in line:
-            derivative_start = index + 4
-            break
-    if base_aero is None:
-        raise ValueError("Base_Aero row was not found in the .stab file.")
-    if derivative_start is None:
-        raise ValueError("Derivative table was not found in the .stab file.")
-    derivative_rows = []
-    derivative_column_names = None
-    for line in lines:
-        if line.lstrip().startswith("Coef") and "Alpha" in line and "ConGrp_1" in line:
-            header_parts = line.split()
-            derivative_column_names = header_parts[2:]
-            break
-    if derivative_column_names is None:
-        derivative_column_names = STAB_DERIVATIVE_COLUMNS
-    for line in lines[derivative_start:]:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        parts = stripped.split()
-        if len(parts) < len(derivative_column_names) + 2:
-            break
-        coef_name = parts[0]
-        if coef_name not in BASE_AERO_COLUMNS:
-            break
-        values = [float(value) for value in parts[1:len(derivative_column_names) + 2]]
-        derivative_rows.append([coef_name] + values)
-    columns = ["Coef", "Base"] + derivative_column_names
-    derivatives = pd.DataFrame(derivative_rows, columns=columns).set_index("Coef")
-    control_groups = {f"ConGrp_{index + 1}": name for index, name in enumerate(control_group_names)}
-    return VSPAEROStab(
-        path=stab_path,
-        references=references,
-        base_condition=base_condition,
-        base_aero=base_aero,
-        derivatives=derivatives,
-        control_groups=control_groups,
-    )
 
 def _resolve_rho(stab: VSPAEROStab, rho: float | None) -> float:
     if rho is not None:
@@ -235,37 +85,6 @@ def _resolve_rho(stab: VSPAEROStab, rho: float | None) -> float:
     if stab.rho0 is None:
         raise ValueError("rho=None was passed, but the .stab file does not contain Rho.")
     return float(stab.rho0)
-
-def resolve_control_columns_from_stab(stab: VSPAEROStab, control_map: Mapping[str, str] | None = None) -> dict:
-    """Map delta_a/e/r to .stab ConGrp_* derivative columns.
-
-    control_map values may be either ConGrp_* derivative column names or
-    control-group names from the .stab case table.  Without an explicit map,
-    group names containing AILERON, ELEVATOR, and RUDDER are used, with the
-    old ConGrp_1/2/3 convention as a fallback for G103A-style files.
-    """
-    available_columns = set(stab.derivatives.columns)
-    group_to_column = {group_name: column for column, group_name in stab.control_groups.items()}
-    result = {}
-    if control_map:
-        for delta_name, target in control_map.items():
-            if target in available_columns:
-                result[delta_name] = target
-            elif target in group_to_column:
-                result[delta_name] = group_to_column[target]
-        return result
-    for delta_name, hint in CONTROL_NAME_HINTS.items():
-        for column, group_name in stab.control_groups.items():
-            if hint in group_name.upper():
-                result[delta_name] = column
-                break
-    for delta_name, fallback_column in CONTROL_COLUMNS_FALLBACK.items():
-        if delta_name not in result and fallback_column in available_columns:
-            result[delta_name] = fallback_column
-    return result
-
-# Private compatibility alias for existing callers inside and outside this module.
-_control_columns_from_stab = resolve_control_columns_from_stab
 
 def _default_initial_guess(stab: VSPAEROStab, fixed: Mapping[str, float], mass: float, rho: float, g: float) -> dict:
     V = float(fixed.get("V", stab.V0 if stab.V0 else 30.0))
@@ -295,29 +114,57 @@ def _complete_parameters(fixed: Mapping[str, float], unknown_names: list[str], u
     return params
 
 def _steady_turn_derived(params: Mapping[str, float], stab: VSPAEROStab, rho: float) -> dict:
+    """Calculate velocities, angular rates, and flight-path geometry.
+
+    The horizontal flight-path radius uses the horizontal speed, not the total
+    airspeed.  In still air, the horizontal track angle differs from the heading
+    by the constant ``track_heading_offset``.  Because that offset is constant
+    in a steady turn, the track angle rotates at the same rate ``Omega``.
+    """
     V = params["V"]
     alpha = params["alpha"]
     beta = params["beta"]
     phi = params["phi"]
     theta = params["theta"]
     Omega = params["Omega"]
+
     u = V * math.cos(alpha) * math.cos(beta)
     v = V * math.sin(beta)
     w = V * math.sin(alpha) * math.cos(beta)
+
     p = -Omega * math.sin(theta)
     q = Omega * math.sin(phi) * math.cos(theta)
     r = Omega * math.cos(phi) * math.cos(theta)
+
     p_hat = p * stab.Bref / (2.0 * V)
     q_hat = q * stab.Cref / (2.0 * V)
     r_hat = r * stab.Bref / (2.0 * V)
     qbar = 0.5 * rho * V * V
-    turn_radius = math.inf if abs(Omega) < 1e-12 else V / Omega
+
+    # These are the horizontal velocity components parallel and perpendicular
+    # to the heading direction.  For arbitrary psi, the pair rotates by psi,
+    # so its magnitude is the actual horizontal flight-path speed.
+    track_forward_component = (
+        u * math.cos(theta)
+        + v * math.sin(phi) * math.sin(theta)
+        + w * math.cos(phi) * math.sin(theta)
+    )
+    track_right_component = v * math.cos(phi) - w * math.sin(phi)
+    horizontal_speed = math.hypot(track_forward_component, track_right_component)
+    track_heading_offset = math.atan2(track_right_component, track_forward_component)
+    horizontal_path_radius = (
+        math.inf
+        if abs(Omega) < 1.0e-12
+        else horizontal_speed / abs(Omega)
+    )
+
     z_dot = (
         -u * math.sin(theta)
         + v * math.sin(phi) * math.cos(theta)
         + w * math.cos(phi) * math.cos(theta)
     )
     h_dot = -z_dot
+
     return {
         "u": u,
         "v": v,
@@ -329,20 +176,26 @@ def _steady_turn_derived(params: Mapping[str, float], stab: VSPAEROStab, rho: fl
         "q_hat": q_hat,
         "r_hat": r_hat,
         "qbar": qbar,
-        "turn_radius": turn_radius,
+        "track_forward_component": track_forward_component,
+        "track_right_component": track_right_component,
+        "horizontal_speed": horizontal_speed,
+        "track_heading_offset": track_heading_offset,
+        "horizontal_path_radius": horizontal_path_radius,
         "z_dot": z_dot,
         "h_dot": h_dot,
         "sink_rate": z_dot,
     }
 
-def _linear_aero_coefficients(
+def _turn_aero_coefficients(
     params: Mapping[str, float],
     derived: Mapping[str, float],
     stab: VSPAEROStab,
     control_columns: Mapping[str, str],
 ) -> dict:
+    """Build turn-state increments and evaluate the shared .stab aero model."""
+
     u_increment = 0.0
-    if abs(stab.V0) > 1e-12:
+    if abs(stab.V0) > 1.0e-12:
         u_increment = (params["V"] - stab.V0) / stab.V0
     increments = {
         "Alpha": params["alpha"] - stab.alpha0,
@@ -355,27 +208,13 @@ def _linear_aero_coefficients(
     }
     for delta_name, column_name in control_columns.items():
         increments[column_name] = params[delta_name]
-    coefficients = {}
-    for coef_name in AERO_COEFFICIENTS:
-        row = stab.derivatives.loc[coef_name]
-        value = float(row["Base"])
-        for derivative_name, increment in increments.items():
-            if derivative_name in row.index:
-                value += float(row[derivative_name]) * float(increment)
-        coefficients[coef_name] = value
-    alpha = params["alpha"]
-    beta = params["beta"]
-    CL = coefficients["CL"]
-    CD = coefficients["CD"]
-    CS = coefficients["CS"]
-    axial_opposite_forward = CD * math.cos(beta) + CS * math.sin(beta)
-    coefficients["CX"] = -axial_opposite_forward * math.cos(alpha) + CL * math.sin(alpha)
-    coefficients["CY"] = -CD * math.sin(beta) + CS * math.cos(beta)
-    coefficients["CZ"] = -axial_opposite_forward * math.sin(alpha) - CL * math.cos(alpha)
-    coefficients["Cl"] = coefficients["CMl"]
-    coefficients["Cm"] = coefficients["CMm"]
-    coefficients["Cn"] = coefficients["CMn"]
-    return coefficients
+    return evaluate_stab_linear_aero(
+        stab,
+        increments,
+        alpha=params["alpha"],
+        beta=params["beta"],
+    )
+
 
 def _steady_turn_residuals(
     params: Mapping[str, float],
@@ -393,7 +232,7 @@ def _steady_turn_residuals(
     Omega = params["Omega"]
     T = params["T"]
     derived = _steady_turn_derived(params, stab, rho)
-    coefficients = _linear_aero_coefficients(params, derived, stab, control_columns)
+    coefficients = _turn_aero_coefficients(params, derived, stab, control_columns)
     qbar_s = derived["qbar"] * stab.Sref
     force_scale = qbar_s if abs(qbar_s) > 1e-12 else 1.0
     required_x = mass * (
@@ -478,7 +317,7 @@ def solve_steady_level_turn(
         raise ValueError("fixed must contain exactly three turn parameters.")
     stab = read_vspaero_stab(stab_path)
     rho_used = _resolve_rho(stab, rho)
-    control_columns = _control_columns_from_stab(stab, control_map)
+    control_columns = resolve_control_columns_from_stab(stab, control_map)
     guess = _default_initial_guess(stab, fixed, mass, rho_used, g)
     if initial_guess:
         guess.update({name: float(value) for name, value in initial_guess.items() if name in TURN_PARAMETERS})
@@ -499,7 +338,7 @@ def solve_steady_level_turn(
     opt = least_squares(residual_vector, x0, bounds=(lower, upper))
     solution = _complete_parameters(fixed, unknown_names, opt.x)
     derived = _steady_turn_derived(solution, stab, rho_used)
-    coefficients = _linear_aero_coefficients(solution, derived, stab, control_columns)
+    coefficients = _turn_aero_coefficients(solution, derived, stab, control_columns)
     residuals = _steady_turn_residuals(solution, stab, mass, rho_used, g, control_columns)
     max_abs_residual = max(abs(value) for value in residuals.values())
     passed = bool(opt.success and np.isfinite(max_abs_residual) and max_abs_residual <= residual_tol)
@@ -594,7 +433,7 @@ def solve_steady_gliding_turn(
         raise ValueError("fixed must contain exactly three gliding-turn parameters.")
     stab = read_vspaero_stab(stab_path)
     rho_used = _resolve_rho(stab, rho)
-    control_columns = _control_columns_from_stab(stab, control_map)
+    control_columns = resolve_control_columns_from_stab(stab, control_map)
     guess = _default_initial_guess(stab, fixed, mass, rho_used, g)
     if initial_guess:
         guess.update({name: float(value) for name, value in initial_guess.items() if name in GLIDING_TURN_PARAMETERS})
@@ -618,7 +457,7 @@ def solve_steady_gliding_turn(
     solution = _complete_parameters(fixed, unknown_names, opt.x)
     solution["T"] = 0.0
     derived = _steady_turn_derived(solution, stab, rho_used)
-    coefficients = _linear_aero_coefficients(solution, derived, stab, control_columns)
+    coefficients = _turn_aero_coefficients(solution, derived, stab, control_columns)
     all_residuals = _steady_turn_residuals(solution, stab, mass, rho_used, g, control_columns)
     residuals = {name: all_residuals[name] for name in residual_names}
     max_abs_residual = max(abs(value) for value in residuals.values())
