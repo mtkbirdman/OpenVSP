@@ -56,11 +56,12 @@ from .util import (
     set_xsec_value,
     workdir,
 )
-from .VSPAEROAero import evaluate_stab_linear_aero, solver_axis_derivative_value
 from .VSPAEROStab import (
     read_vspaero_stab,
     resolve_control_columns_from_stab,
     stab_coefficient_value,
+    evaluate_stab_linear_aero, 
+    solver_axis_derivative_value,
 )
 from .TrimTurnSolver import (
     solve_rudder_limit_turn,
@@ -2234,3 +2235,159 @@ def plot_vv_gamma_contour_panel(
         if print_errors:
             print(f"{column}: {exc!r}")
         return ax, None, None, None
+
+def plot_vv_gamma_contour_lines(
+    results: pd.DataFrame,
+    column_settings: Mapping[str, Mapping[str, Any]],
+    *,
+    ax=None,
+    x_column: str = "Vv",
+    y_column: str = "Gamma_eff_deg",
+    grid_size: int = 80,
+    method: str = "linear",
+    fallback_method: str = "nearest",
+    x_ticks: Sequence[float] | None = None,
+    y_ticks: Sequence[float] | None = None,
+    show_points: bool = False,
+    title: str = "",
+):
+    """Overlay line contours for multiple Vv-Gamma result columns.
+
+    ``column_settings`` is keyed by result-column name. Each value may specify
+    ``levels``, ``color``, ``linestyle``, ``linewidth_min``,
+    ``linewidth_max``, ``linewidth_scale``, ``show_labels``,
+    ``label_format``, and ``label``.
+    Color identifies the result column. Line width represents the contour
+    value within that column. ``linewidth_scale`` accepts ``value``,
+    ``absolute``, ``value-``, and ``absolute-``; the default is ``value``.
+    """
+    import warnings
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    if not column_settings:
+        raise ValueError("column_settings must contain at least one result column.")
+    if ax is None:
+        _, ax = plt.subplots()
+    default_colors = plt.rcParams["axes.prop_cycle"].by_key().get("color", ["C0"])
+    contours: dict[str, Any] = {}
+    surfaces: dict[str, dict[str, Any]] = {}
+    legend_handles = []
+    first_surface = None
+    for column_index, (column, settings) in enumerate(column_settings.items()):
+        settings = dict(settings)
+        surface = build_vv_gamma_response_surface(
+            results,
+            column,
+            x_column=x_column,
+            y_column=y_column,
+            grid_size=grid_size,
+            method=method,
+            fallback_method=fallback_method,
+        )
+        surfaces[column] = surface
+        if first_surface is None:
+            first_surface = surface
+        if surface["zz"] is None:
+            warnings.warn(
+                f"{column}: a two-dimensional response surface could not be built; contour lines were skipped.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            contours[column] = None
+            continue
+        finite_values = surface["zz"][np.isfinite(surface["zz"])]
+        if finite_values.size == 0:
+            warnings.warn(
+                f"{column}: the response surface has no finite values; contour lines were skipped.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            contours[column] = None
+            continue
+        levels = settings.get("levels", 5)
+        if isinstance(levels, (int, np.integer)):
+            if int(levels) < 1:
+                raise ValueError(f"{column}: integer levels must be at least 1.")
+            value_min = float(np.min(finite_values))
+            value_max = float(np.max(finite_values))
+            if math.isclose(value_min, value_max, rel_tol=0.0, abs_tol=1.0e-14):
+                warnings.warn(
+                    f"{column}: the response surface is constant; contour lines were skipped.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                contours[column] = None
+                continue
+            contour_levels = np.linspace(value_min, value_max, int(levels))
+        else:
+            contour_levels = np.asarray(levels, dtype=float)
+            if (
+                contour_levels.ndim != 1
+                or contour_levels.size < 1
+                or not np.all(np.isfinite(contour_levels))
+                or np.any(np.diff(contour_levels) <= 0.0)
+            ):
+                raise ValueError(
+                    f"{column}: explicit levels must be a finite, strictly increasing one-dimensional sequence."
+                )
+        linewidth_min = float(settings.get("linewidth_min", 1.0))
+        linewidth_max = float(settings.get("linewidth_max", 4.0))
+        if linewidth_min <= 0.0 or linewidth_max < linewidth_min:
+            raise ValueError(f"{column}: require 0 < linewidth_min <= linewidth_max.")
+        linewidth_scale = settings.get("linewidth_scale", "value")
+        if linewidth_scale not in {"value", "absolute", "value-", "absolute-"}:
+            raise ValueError(
+                f"{column}: linewidth_scale must be 'value', 'absolute', 'value-', or 'absolute-'."
+            )
+        width_values = (
+            np.abs(contour_levels)
+            if linewidth_scale.startswith("absolute")
+            else contour_levels.copy()
+        )
+        width_value_min = float(np.min(width_values))
+        width_value_max = float(np.max(width_values))
+        if math.isclose(width_value_min, width_value_max, rel_tol=0.0, abs_tol=1.0e-14):
+            normalized_widths = np.full(contour_levels.shape, 0.5, dtype=float)
+        else:
+            normalized_widths = (
+                (width_values - width_value_min)
+                / (width_value_max - width_value_min)
+            )
+        if linewidth_scale.endswith("-"):
+            normalized_widths = 1.0 - normalized_widths
+        linewidths = linewidth_min + normalized_widths * (linewidth_max - linewidth_min)
+        color = settings.get("color", default_colors[column_index % len(default_colors)])
+        linestyle = settings.get("linestyle", "-")
+        contour = ax.contour(
+            surface["xx"],
+            surface["yy"],
+            surface["zz"],
+            levels=contour_levels,
+            colors=[color],
+            linestyles=linestyle,
+            linewidths=linewidths,
+        )
+        contours[column] = contour
+        if settings.get("show_labels", False):
+            ax.clabel(
+                contour,
+                contour.levels,
+                inline=True,
+                fmt=settings.get("label_format", "%.2g"),
+            )
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=color,
+                linestyle=linestyle,
+                linewidth=0.5 * (linewidth_min + linewidth_max),
+                label=settings.get("label", vv_gamma_latex_label(column)),
+            )
+        )
+    if show_points and first_surface is not None:
+        ax.scatter(first_surface["x"], first_surface["y"], s=16)
+    _format_vv_gamma_axes(ax, label=title, x_ticks=x_ticks, y_ticks=y_ticks)
+    if legend_handles:
+        ax.legend(handles=legend_handles, bbox_to_anchor=(1.05, 1), loc='upper left', )
+    return ax, contours, surfaces
