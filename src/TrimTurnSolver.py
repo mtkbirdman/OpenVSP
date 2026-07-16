@@ -152,7 +152,7 @@ def _steady_turn_derived(params: Mapping[str, float], stab: VSPAEROStab, rho: fl
     track_right_component = v * math.cos(phi) - w * math.sin(phi)
     horizontal_speed = math.hypot(track_forward_component, track_right_component)
     track_heading_offset = math.atan2(track_right_component, track_forward_component)
-    horizontal_path_radius = (
+    turn_radius = (
         math.inf
         if abs(Omega) < 1.0e-12
         else horizontal_speed / abs(Omega)
@@ -180,7 +180,7 @@ def _steady_turn_derived(params: Mapping[str, float], stab: VSPAEROStab, rho: fl
         "track_right_component": track_right_component,
         "horizontal_speed": horizontal_speed,
         "track_heading_offset": track_heading_offset,
-        "horizontal_path_radius": horizontal_path_radius,
+        "turn_radius": turn_radius,
         "z_dot": z_dot,
         "h_dot": h_dot,
         "sink_rate": z_dot,

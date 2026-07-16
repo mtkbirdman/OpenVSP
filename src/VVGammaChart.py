@@ -11,7 +11,8 @@ The main workflow is intentionally split into two readable stages:
        expected Vv/wtip case table -> existing .vsp3/.stab paths
 
     3. postprocess_vv_gamma_cases:
-       tip_deflection + semispan -> analytic elliptical-planform weighted
+       final .vsp3 wing sections -> yc(y)-weighted total Gamma_eff,
+       base .vsp3 wing sections -> rigid Gamma_eff, difference -> elastic
        Gamma_eff, then .stab parsing -> stability indices -> simple rudder-roll index
        -> 6DOF signed-delta-phi roll-response index ->
        crosswind-gust short-time roll-path index ->
@@ -47,6 +48,7 @@ from .util import (
     TIP_CHORD_NAMES,
     XFORM_GROUP_NAMES,
     X_LOCATION_NAMES,
+    get_container_parm_value,
     find_one_geom,
     get_geom_parm_value,
     get_xsec_value,
@@ -161,24 +163,6 @@ def read_wing_section_table(vsp3_path: str | os.PathLike, geom_name: str, *, sur
     geom_id = find_one_geom(vsp, geom_name)
     return _read_wing_section_table_from_loaded(vsp, geom_id, surf_index=surf_index)
 
-def wing_planform_summary(section_table: pd.DataFrame) -> dict[str, float]:
-    if section_table.empty:
-        raise ValueError("Wing section table is empty.")
-    area = float(section_table["area"].sum())
-    if not math.isfinite(area) or area <= 0.0:
-        raise ValueError(f"Wing planform area must be positive. area={area}")
-    span = float(section_table["span"].sum())
-    quarter_chord_x_local = float(
-        (section_table["area"] * section_table["quarter_chord_x_local"]).sum() / area
-    )
-    aspect_ratio = span * span / area
-    return {
-        "area": area,
-        "span": span,
-        "aspect_ratio": aspect_ratio,
-        "quarter_chord_x_local": quarter_chord_x_local,
-    }
-
 def _reference_wing_summary_from_loaded(
     vsp,
     *,
@@ -264,62 +248,151 @@ def read_reference_wing_summary(
     vsp.Update()
     return _reference_wing_summary_from_loaded(vsp, wing_name=wing_name, surf_index=surf_index)
 
-def calculate_gamma_eff_from_tip_deflection(
-    tip_deflection: float,
-    semispan: float,
-    *,
-    n_span: int = 1001,
-) -> dict[str, Any]:
-    """Calculate Gamma_eff from an analytic elliptical-planform deflection model.
+def calculate_gamma_eff_from_wing_sections(section_table: pd.DataFrame) -> dict[str, float]:
+    """Calculate the yc(y)-weighted effective dihedral of OpenVSP wing sections.
 
-    This definition deliberately does not read a .vsp3 file.  The chart axis is
-    tied directly to the design input tip_deflection and a chosen semispan.
-
-    Assumptions:
-    - chord distribution is elliptical: c(x) = c0 * sqrt(1 - x**2)
-    - rigid dihedral is zero
-    - local lift-curve slope is constant
-    - elastic dihedral is the elliptical-load, constant-EI beam slope returned
-      by elastic_wing_deflection_distribution()
-
-    With x = y / semispan, c0 cancels from the yc(y)-weighted average:
-
-        Gamma_eff = integral x sqrt(1-x^2) theta_b(x) dx
-                  / integral x sqrt(1-x^2) dx
+    The OpenVSP wing is represented as piecewise-linear chord sections with one
+    constant Dihedral value per section.  For each section, this function
+    integrates y*c(y) exactly and uses the result as the averaging weight.
     """
 
-    semispan = float(semispan)
-    if semispan <= 0.0:
-        raise ValueError("semispan must be positive for Gamma_eff calculation.")
-    if int(n_span) < 11:
-        raise ValueError("n_span must be at least 11 for Gamma_eff integration.")
+    if section_table.empty:
+        raise ValueError("Wing section table is empty.")
 
-    deflection = elastic_wing_deflection_distribution(
-        float(tip_deflection),
-        semispan,
-        n_span=int(n_span),
-    )
-    x = deflection["eta"].to_numpy(dtype=float)
-    theta_rad = deflection["theta_rad"].to_numpy(dtype=float)
-    weight = x * np.sqrt(np.maximum(1.0 - x * x, 0.0))
-    weight_sum = float(np.trapezoid(weight, x))
+    weight_sum = 0.0
+    weighted_dihedral_sum = 0.0
+    for row in section_table.itertuples(index=False):
+        y0 = float(row.root_y)
+        y1 = float(row.tip_y)
+        dy = y1 - y0
+        if dy <= 0.0:
+            raise ValueError(f"Wing section span must be positive. y0={y0}, y1={y1}")
+
+        c0 = float(row.root_chord)
+        c1 = float(row.tip_chord)
+        chord_slope = (c1 - c0) / dy
+        chord_intercept = c0 - chord_slope * y0
+        section_weight = (
+            chord_slope * (y1**3 - y0**3) / 3.0
+            + chord_intercept * (y1**2 - y0**2) / 2.0
+        )
+        weight_sum += section_weight
+        weighted_dihedral_sum += section_weight * math.radians(float(row.dihedral_deg))
+
     if weight_sum <= 0.0:
-        raise ValueError("Could not calculate Gamma_eff because the elliptical-planform weight is zero.")
+        raise ValueError("Could not calculate Gamma_eff because the yc(y) weight is zero.")
 
-    gamma_elastic_rad = float(np.trapezoid(weight * theta_rad, x) / weight_sum)
-    gamma_rigid_rad = 0.0
-    gamma_eff_rad = gamma_elastic_rad
+    gamma_eff_rad = weighted_dihedral_sum / weight_sum
     return {
-        "Gamma_eff_rad": gamma_eff_rad,
-        "Gamma_eff_deg": math.degrees(gamma_eff_rad),
-        "Gamma_eff_rigid_rad": gamma_rigid_rad,
-        "Gamma_eff_rigid_deg": 0.0,
-        "Gamma_eff_elastic_rad": gamma_elastic_rad,
-        "Gamma_eff_elastic_deg": math.degrees(gamma_elastic_rad),
-        "Gamma_eff_weight_sum": weight_sum,
-        "Gamma_eff_semispan": semispan,
-        "Gamma_eff_n_span": int(n_span),
-        "Gamma_eff_source": "analytic_elliptic_planform_zero_rigid_dihedral_constant_ei_tip_deflection_yc_weighted",
+        "gamma_eff_rad": gamma_eff_rad,
+        "gamma_eff_deg": math.degrees(gamma_eff_rad),
+        "weight_sum": weight_sum,
+    }
+
+def wing_planform_summary(section_table: pd.DataFrame) -> dict[str, float]:
+    if section_table.empty:
+        raise ValueError("Wing section table is empty.")
+    area = float(section_table["area"].sum())
+    if not math.isfinite(area) or area <= 0.0:
+        raise ValueError(f"Wing planform area must be positive. area={area}")
+    span = float(section_table["span"].sum())
+    quarter_chord_x_local = float(
+        (section_table["area"] * section_table["quarter_chord_x_local"]).sum() / area
+    )
+    taper = section_table["tip_chord"] / section_table["root_chord"]
+    section_mac = (
+        2.0 / 3.0 * section_table["root_chord"]
+        * (1.0 + taper + taper * taper) / (1.0 + taper)
+    )
+    mean_aerodynamic_chord = float((section_table["area"] * section_mac).sum() / area)
+    aspect_ratio = span * span / area
+    return {
+        "area": area,
+        "span": span,
+        "aspect_ratio": aspect_ratio,
+        "mean_aerodynamic_chord": mean_aerodynamic_chord,
+        "quarter_chord_x_local": quarter_chord_x_local,
+    }
+
+def read_aircraft_geometry_summary(
+    vsp3_path: str | os.PathLike,
+    *,
+    wing_name: str = "WingGeom",
+    htail_name: str = "HTailGeom",
+    vtail_name: str = "VTailGeom",
+    surf_index: int = 0,
+) -> dict[str, Any]:
+    """Read the main aircraft geometry and VSPAERO reference values from one .vsp3 model."""
+    vsp = import_openvsp()
+    vsp.ClearVSPModel()
+    vsp.Update()
+    vsp.ReadVSPFile(os.fspath(vsp3_path))
+    vsp.Update()
+    wing = _reference_wing_summary_from_loaded(vsp, wing_name=wing_name, surf_index=surf_index)
+    wing_sections = _read_wing_section_table_from_loaded(vsp, wing["geom_id"], surf_index=surf_index)
+    htail_id = find_one_geom(vsp, htail_name)
+    htail_sections = _read_wing_section_table_from_loaded(vsp, htail_id, surf_index=surf_index)
+    htail = wing_planform_summary(htail_sections)
+    htail["area"] = get_geom_parm_value(
+        vsp, htail_id, ("TotalArea", "Total_Area", "Area"), ("WingGeom",), default=htail["area"]
+    )
+    htail["span"] = get_geom_parm_value(
+        vsp, htail_id, ("TotalSpan", "Total_Span", "Span"), ("WingGeom",), default=htail["span"]
+    )
+    vtail_id = find_one_geom(vsp, vtail_name)
+    vtail_sections = _read_wing_section_table_from_loaded(vsp, vtail_id, surf_index=surf_index)
+    vtail = wing_planform_summary(vtail_sections)
+    vtail["area"] = get_geom_parm_value(
+        vsp, vtail_id, ("TotalArea", "Total_Area", "Area"), ("WingGeom",), default=vtail["area"]
+    )
+    vtail["span"] = get_geom_parm_value(
+        vsp, vtail_id, ("TotalSpan", "Total_Span", "Span"), ("WingGeom",), default=vtail["span"]
+    )
+    settings_id = vsp.FindContainer("VSPAEROSettings", 0)
+    if not settings_id:
+        raise ValueError("The VSPAEROSettings container was not found.")
+        
+    settings = {}
+    for name in ("Sref", "bref", "cref", "Xcg", "Ycg", "Zcg"):
+        value, parm_id = get_container_parm_value(vsp, settings_id, name)
+        if not parm_id:
+            raise ValueError(f"VSPAERO setting '{name}' was not found.")
+        settings[name] = float(value)
+    htail_x = get_geom_parm_value(vsp, htail_id, X_LOCATION_NAMES, XFORM_GROUP_NAMES)
+    vtail_x = get_geom_parm_value(vsp, vtail_id, X_LOCATION_NAMES, XFORM_GROUP_NAMES)
+    htail_x_ac = htail_x + htail["quarter_chord_x_local"]
+    vtail_x_ac = vtail_x + vtail["quarter_chord_x_local"]
+    horizontal_tail_arm = htail_x_ac - settings["Xcg"]
+    vertical_tail_arm = vtail_x_ac - settings["Xcg"]
+    wing_gamma = calculate_gamma_eff_from_wing_sections(wing_sections)
+    wing_area = float(wing["area"])
+    wing_span = float(wing["span"])
+    wing_mac = float(wing["mean_aerodynamic_chord"])
+    return {
+        "vsp3_path": os.fspath(vsp3_path),
+        "wing_name": vsp.GetGeomName(wing["geom_id"]),
+        "htail_name": htail_name,
+        "vtail_name": vtail_name,
+        "wing_area": wing_area,
+        "wing_span": wing_span,
+        "wing_aspect_ratio": wing_span * wing_span / wing_area,
+        "wing_mac": wing_mac,
+        "vspaero_Sref": settings["Sref"],
+        "vspaero_bref": settings["bref"],
+        "vspaero_cref": settings["cref"],
+        "htail_area": float(htail["area"]),
+        "htail_span": float(htail["span"]),
+        "vtail_area": float(vtail["area"]),
+        "vtail_height": float(vtail["span"]),
+        "horizontal_tail_arm": horizontal_tail_arm,
+        "vertical_tail_arm": vertical_tail_arm,
+        "horizontal_tail_volume": float(htail["area"]) * horizontal_tail_arm / (wing_area * wing_mac),
+        "vertical_tail_volume": float(vtail["area"]) * vertical_tail_arm / (wing_area * wing_span),
+        "xcg": settings["Xcg"],
+        "ycg": settings["Ycg"],
+        "zcg": settings["Zcg"],
+        "gamma_eff_rad": wing_gamma["gamma_eff_rad"],
+        "gamma_eff_deg": wing_gamma["gamma_eff_deg"],
     }
 
 # ---------------------------------------------------------------------------
@@ -921,7 +994,7 @@ def collect_vv_wtip_sweep_progress(
     tip_deflections: Sequence[float],
     output_dir: str | os.PathLike,
     *,
-    gamma_semispan: float | None = None,
+    base_vsp3_path: str | os.PathLike,
     include_incomplete_cases: bool = False,
     output_csv_path: str | os.PathLike | None = None,
 ) -> pd.DataFrame:
@@ -930,8 +1003,9 @@ def collect_vv_wtip_sweep_progress(
     This is intended for a second notebook while run_vv_wtip_stability_sweep()
     is still running.  The user already knows the Vv and wtip grids from the
     notebook inputs, so this function does not try to parse design variables
-    from file names.  It only reconstructs the expected case names and records
-    which case folders already contain a .stab file.
+    from file names.  It reconstructs the expected case names, records the base
+    and deformed .vsp3 paths needed for Gamma_eff, and checks whether each case
+    folder already contains a .stab file.
     """
 
     vv_values = list(vv_values)
@@ -942,6 +1016,9 @@ def collect_vv_wtip_sweep_progress(
         raise ValueError("tip_deflections must not be empty.")
 
     output_dir = Path(output_dir)
+    base_vsp3_path = Path(base_vsp3_path).resolve()
+    if not base_vsp3_path.exists():
+        raise FileNotFoundError(f"Base .vsp3 file was not found: {base_vsp3_path}")
     total_cases = len(vv_values) * len(tip_deflections)
     rows: list[dict[str, Any]] = []
     case_index = 0
@@ -975,7 +1052,7 @@ def collect_vv_wtip_sweep_progress(
                         "Vv": float(vv),
                         "tip_deflection": float(tip_deflection),
                         "case_dir": os.fspath(case_dir),
-                        "gamma_semispan": np.nan if gamma_semispan is None else float(gamma_semispan),
+                        "base_vsp3_path": os.fspath(base_vsp3_path),
                         "vsp3_path": os.fspath(deformed_vsp3_path),
                         "deflection_csv_path": os.fspath(deflection_csv_path),
                         "stab_path": stab_path,
@@ -1095,7 +1172,6 @@ def run_vv_wtip_stability_sweep(
                 "case_count": total_cases,
                 "Vv": float(vv),
                 "tip_deflection": float(tip_deflection),
-                "gamma_semispan": reference_wing_span / 2.0,
                 "case_dir": os.fspath(case_dir),
                 "base_vsp3_path": os.fspath(base_vsp3_path),
                 "vsp3_path": os.fspath(deformed_vsp3_path),
@@ -1296,9 +1372,11 @@ def postprocess_vv_gamma_cases(
     results: pd.DataFrame | str | os.PathLike,
     *,
     stab_path_column: str = "stab_path",
-    gamma_semispan: float | None = None,
-    gamma_semispan_column: str = "gamma_semispan",
-    gamma_n_span: int = 1001,
+    vsp3_path_column: str = "vsp3_path",
+    base_vsp3_path_column: str = "base_vsp3_path",
+    base_vsp3_path: str | os.PathLike | None = None,
+    wing_name: str = "WingGeom",
+    surf_index: int = 0,
     control_map: Mapping[str, str] | None = None,
     mass: float | None = None,
     inertia: Mapping[str, float] | None = None,
@@ -1354,7 +1432,11 @@ def postprocess_vv_gamma_cases(
     output_csv_path: str | os.PathLike | None = None,
     verbose: int | bool = 0,
 ) -> pd.DataFrame:
-    """Add Gamma_eff, .stab indices, response indices, and turn-trim indices.
+    """Add OpenVSP Gamma_eff, .stab indices, response indices, and turn-trim indices.
+
+    Gamma_eff is read from the actual wing Dihedral values stored in each final
+    .vsp3 model.  The rigid contribution is read from the base .vsp3 model, and
+    the elastic contribution is their difference.
 
     Internal calculations stay in rad and rad/s. The returned DataFrame and
     optional CSV are converted at the end: angles are deg, angular rates and
@@ -1380,24 +1462,19 @@ def postprocess_vv_gamma_cases(
     table = results.copy() if isinstance(results, pd.DataFrame) else pd.read_csv(results)
     if stab_path_column not in table.columns:
         raise KeyError(f"results is missing required .stab path column: {stab_path_column!r}")
-
-    gamma_semispan_value = gamma_semispan
-    if gamma_semispan_value is None and gamma_semispan_column in table.columns:
-        candidates = [
-            value
-            for value in table[gamma_semispan_column].tolist()
-            if not pd.isna(value) and str(value).strip()
-        ]
-        if candidates:
-            gamma_semispan_value = float(candidates[0])
-    if gamma_semispan_value is None:
-        raise ValueError(
-            "gamma_semispan is required unless results contains a non-empty "
-            f"{gamma_semispan_column!r} column."
+    if vsp3_path_column not in table.columns:
+        raise KeyError(f"results is missing required .vsp3 path column: {vsp3_path_column!r}")
+    if base_vsp3_path is None and base_vsp3_path_column not in table.columns:
+        raise KeyError(
+            "A base .vsp3 path is required. Pass base_vsp3_path or include "
+            f"the {base_vsp3_path_column!r} column in results."
         )
-    gamma_semispan_value = float(gamma_semispan_value)
-    if gamma_semispan_value <= 0.0:
-        raise ValueError("gamma_semispan must be positive.")
+
+    base_vsp3_path_override = None
+    if base_vsp3_path is not None:
+        base_vsp3_path_override = Path(base_vsp3_path).resolve()
+        if not base_vsp3_path_override.exists():
+            raise FileNotFoundError(f"Base .vsp3 file was not found: {base_vsp3_path_override}")
 
     needs_mass = bool(
         run_6dof
@@ -1438,6 +1515,7 @@ def postprocess_vv_gamma_cases(
     if history_output_dir_path is not None:
         history_output_dir_path.mkdir(parents=True, exist_ok=True)
 
+    gamma_eff_cache: dict[tuple[str, str, int], dict[str, float]] = {}
     rows: list[dict[str, Any]] = []
     for row_index, row in table.iterrows():
         case_name = str(row.get("case", f"case_{row_index}"))
@@ -1446,14 +1524,12 @@ def postprocess_vv_gamma_cases(
         output_row["postprocess_error"] = ""
         output_row["Gamma_eff_rad"] = np.nan
         output_row["Gamma_eff_deg"] = np.nan
-        output_row["Gamma_eff_source"] = "analytic_elliptic_planform_zero_rigid_dihedral_constant_ei_tip_deflection_yc_weighted"
+        output_row["Gamma_eff_source"] = "openvsp_base_and_deformed_wing_section_dihedral_yc_weighted"
         output_row["Gamma_eff_rigid_rad"] = np.nan
         output_row["Gamma_eff_rigid_deg"] = np.nan
         output_row["Gamma_eff_elastic_rad"] = np.nan
         output_row["Gamma_eff_elastic_deg"] = np.nan
         output_row["Gamma_eff_weight_sum"] = np.nan
-        output_row["Gamma_eff_semispan"] = gamma_semispan_value
-        output_row["Gamma_eff_n_span"] = int(gamma_n_span)
         output_row["simple_rudder_roll_index"] = np.nan
         output_row["simple_turn_trim_delta_r_per_beta"] = np.nan
         output_row["simple_rudder_turn_K_phi"] = np.nan
@@ -1587,13 +1663,58 @@ def postprocess_vv_gamma_cases(
             rows.append(output_row)
             continue
 
+        deformed_vsp3_path_value = row.get(vsp3_path_column, "")
+        if pd.isna(deformed_vsp3_path_value) or str(deformed_vsp3_path_value).strip() == "":
+            output_row["postprocess_error"] = "missing vsp3_path"
+            rows.append(output_row)
+            continue
+        deformed_vsp3_path = Path(str(deformed_vsp3_path_value))
+        if not deformed_vsp3_path.exists():
+            output_row["postprocess_error"] = f"deformed .vsp3 file not found: {deformed_vsp3_path}"
+            rows.append(output_row)
+            continue
+
+        if base_vsp3_path_override is not None:
+            rigid_vsp3_path = base_vsp3_path_override
+        else:
+            rigid_vsp3_path_value = row.get(base_vsp3_path_column, "")
+            if pd.isna(rigid_vsp3_path_value) or str(rigid_vsp3_path_value).strip() == "":
+                output_row["postprocess_error"] = "missing base_vsp3_path"
+                rows.append(output_row)
+                continue
+            rigid_vsp3_path = Path(str(rigid_vsp3_path_value))
+        if not rigid_vsp3_path.exists():
+            output_row["postprocess_error"] = f"base .vsp3 file not found: {rigid_vsp3_path}"
+            rows.append(output_row)
+            continue
+
         try:
-            gamma_eff = calculate_gamma_eff_from_tip_deflection(
-                float(row.get("tip_deflection")),
-                gamma_semispan_value,
-                n_span=int(gamma_n_span),
+            gamma_summaries: dict[str, dict[str, float]] = {}
+            for name, vsp3_path in (("rigid", rigid_vsp3_path), ("total", deformed_vsp3_path)):
+                cache_key = (os.fspath(vsp3_path.resolve()), str(wing_name), int(surf_index))
+                if cache_key not in gamma_eff_cache:
+                    wing_sections = read_wing_section_table(
+                        vsp3_path,
+                        wing_name,
+                        surf_index=int(surf_index),
+                    )
+                    gamma_eff_cache[cache_key] = calculate_gamma_eff_from_wing_sections(wing_sections)
+                gamma_summaries[name] = gamma_eff_cache[cache_key]
+
+            gamma_total = gamma_summaries["total"]
+            gamma_rigid = gamma_summaries["rigid"]
+            gamma_elastic_rad = gamma_total["gamma_eff_rad"] - gamma_rigid["gamma_eff_rad"]
+            output_row.update(
+                {
+                    "Gamma_eff_rad": gamma_total["gamma_eff_rad"],
+                    "Gamma_eff_deg": gamma_total["gamma_eff_deg"],
+                    "Gamma_eff_rigid_rad": gamma_rigid["gamma_eff_rad"],
+                    "Gamma_eff_rigid_deg": gamma_rigid["gamma_eff_deg"],
+                    "Gamma_eff_elastic_rad": gamma_elastic_rad,
+                    "Gamma_eff_elastic_deg": math.degrees(gamma_elastic_rad),
+                    "Gamma_eff_weight_sum": gamma_total["weight_sum"],
+                }
             )
-            output_row.update(gamma_eff)
             basic = calculate_stab_basic_indices(stab_path, vv=row.get("Vv", None), tip_deflection=row.get("tip_deflection", None), control_map=control_map, verbose=verbose)
             output_row.update(basic)
 
@@ -1831,6 +1952,8 @@ def postprocess_vv_gamma_cases(
 
 VV_GAMMA_LATEX_LABELS = {
     "Gamma_eff_deg": r"$\Gamma_{\mathrm{eff}}\ [\mathrm{deg}]$",
+    "Gamma_eff_rigid_deg": r"$\Gamma_{\mathrm{eff,rigid}}\ [\mathrm{deg}]$",
+    "Gamma_eff_elastic_deg": r"$\Gamma_{\mathrm{eff,elastic}}\ [\mathrm{deg}]$",
     "CL_alpha": r"$C_{L\alpha}$",
     "Cl_beta": r"$C_{l\beta}$",
     "Cn_beta": r"$C_{n\beta}$",
@@ -1859,6 +1982,7 @@ VV_GAMMA_LATEX_LABELS = {
     "sixdof_roll_response_index_reference": r"$\frac{b}{2V}\frac{(\phi_f-\phi_0)/t_f}{\delta_r}$",
     "crosswind_gust_roll_index": r"$K_{gust,roll}=\frac{8I_z}{\rho S b^3}C_{l\beta}+C_{l\hat{r}}C_{n\beta}$",
     "crosswind_gust_roll_index_abs": r"$|K_{gust,roll}|$",
+    "crosswind_gust_max_phi_delta": r"$\Delta\phi_{\max,gust}\ [\mathrm{deg}]$",
     "sixdof_roll_response_phi_rate_per_delta_r": r"$\{(\Delta\phi/\Delta t)/\delta_r\}_{6DOF}$",
     "sixdof_roll_response_fraction_of_target": r"$(\phi_f-\phi_0)/\Delta\phi_{target}$",
     "turn_trim_V": r"$V_{trim}$",
@@ -2389,5 +2513,5 @@ def plot_vv_gamma_contour_lines(
         ax.scatter(first_surface["x"], first_surface["y"], s=16)
     _format_vv_gamma_axes(ax, label=title, x_ticks=x_ticks, y_ticks=y_ticks)
     if legend_handles:
-        ax.legend(handles=legend_handles, bbox_to_anchor=(1.05, 1), loc='upper left', )
+        ax.legend(handles=legend_handles, bbox_to_anchor=(0.02, 0.98), loc='upper left', )
     return ax, contours, surfaces
