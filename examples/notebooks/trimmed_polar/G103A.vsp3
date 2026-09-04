@@ -27,6 +27,17 @@
           </AttributeCollection>
         </Attribute>
       </AttributeCollection>
+      <Projection>
+        <BoundaryHullFlag Value="0.000000000000000000e+00" ID="ROWZWHGAYMH"/>
+        <BoundaryType Value="0.000000000000000000e+00" ID="BRRDOVROWSO"/>
+        <DirectionType Value="0.000000000000000000e+00" ID="EAJSSQNOCEQ"/>
+        <DiskSegmentBreakdownFlag Value="0.000000000000000000e+00" ID="TKAVGFQUGJL"/>
+        <TargetHullFlag Value="0.000000000000000000e+00" ID="RIDNFVCVAXU"/>
+        <TargetType Value="0.000000000000000000e+00" ID="GXDNWHHBCSG"/>
+        <XComp Value="0.000000000000000000e+00" ID="SIKGHMYNMBU"/>
+        <YComp Value="0.000000000000000000e+00" ID="QMUQIYHIIXC"/>
+        <ZComp Value="0.000000000000000000e+00" ID="OZLFNGXNVVI"/>
+      </Projection>
       <STEPSettings>
         <ExportPropMainSurf Value="0.000000000000000000e+00" ID="XKIRVKEIIZF"/>
         <LabelAirfoilPart Value="1.000000000000000000e+00" ID="ZWIDXDMQOHF"/>
@@ -60,16 +71,6 @@
       <CompGeom>
         <UseModeCompGeomFlag Value="0.000000000000000000e+00" ID="YZOJHLBRGCL"/>
       </CompGeom>
-      <Projection>
-        <BoundaryHullFlag Value="0.000000000000000000e+00" ID="ROWZWHGAYMH"/>
-        <BoundaryType Value="0.000000000000000000e+00" ID="BRRDOVROWSO"/>
-        <DirectionType Value="0.000000000000000000e+00" ID="EAJSSQNOCEQ"/>
-        <TargetHullFlag Value="0.000000000000000000e+00" ID="RIDNFVCVAXU"/>
-        <TargetType Value="0.000000000000000000e+00" ID="GXDNWHHBCSG"/>
-        <XComp Value="0.000000000000000000e+00" ID="SIKGHMYNMBU"/>
-        <YComp Value="0.000000000000000000e+00" ID="QMUQIYHIIXC"/>
-        <ZComp Value="0.000000000000000000e+00" ID="OZLFNGXNVVI"/>
-      </Projection>
       <DXFSettings>
         <BottomLeftRotation Value="0.000000000000000000e+00" ID="PWWXWQDHVTQ"/>
         <BottomLeftView Value="4.000000000000000000e+00" ID="KXJGZEIVGDP"/>
@@ -139,8 +140,8 @@
         <RotationX Value="0.000000000000000000e+00" ID="IJCTTUVUNZU"/>
         <RotationY Value="0.000000000000000000e+00" ID="ZHYEOCTPXLN"/>
         <RotationZ Value="0.000000000000000000e+00" ID="LJPBLXTYNDH"/>
-        <ViewportX Value="7.880000000000000000e+02" ID="DYQEJOLHHQW"/>
-        <ViewportY Value="9.980000000000000000e+02" ID="JBSJSKEHQNR"/>
+        <ViewportX Value="1.165000000000000000e+03" ID="DYQEJOLHHQW"/>
+        <ViewportY Value="9.170000000000000000e+02" ID="JBSJSKEHQNR"/>
         <Zoom Value="1.799999999999999864e-02" ID="IHTJZXARCWK"/>
       </AdjustView>
       <Design>
@@ -160,10 +161,10 @@
       </FitModel>
       <Screenshot>
         <AutoCropFlag Value="0.000000000000000000e+00" ID="UNFAYOKZRQQ"/>
-        <Height Value="9.980000000000000000e+02" ID="AOADFIHWXGV"/>
+        <Height Value="9.170000000000000000e+02" ID="AOADFIHWXGV"/>
         <Ratio Value="1.000000000000000000e+00" ID="FFFCHRDWQUM"/>
         <TransparentBGFlag Value="1.000000000000000000e+00" ID="VIVNAHKWAAF"/>
-        <Width Value="7.880000000000000000e+02" ID="YMYRTKZXZRA"/>
+        <Width Value="1.165000000000000000e+03" ID="YMYRTKZXZRA"/>
       </Screenshot>
       <UserParm>
         <Max Value="1.000000000000000000e+05" ID="FQCQLWTHDTL"/>
@@ -387,6 +388,33 @@
       <ParmContainer>
         <ID>ZCZWAYJMXW</ID>
         <Name>FuselageGeom</Name>
+        <Negative_Volume_Props>
+          <Negative_Volume_Flag Value="0.000000000000000000e+00" ID="HMNAPIMSPQA"/>
+        </Negative_Volume_Props>
+        <EngineModel>
+          <AutoExtensionFlag Value="0.000000000000000000e+00" ID="UNUZCQTDPXC"/>
+          <AutoExtensionSet Value="1.000000000000000000e+00" ID="FEWSVSJAWJY"/>
+          <EngineShowStationsFlag Value="1.000000000000000000e+00" ID="HAEGRSXFOQQ"/>
+          <ExtensionDistance Value="1.000000000000000000e+01" ID="DLZTGDEKHHT"/>
+          <GeomIOType Value="0.000000000000000000e+00" ID="ZIIITSSFAWW"/>
+          <GeomInType Value="0.000000000000000000e+00" ID="HMCZANPOHPD"/>
+          <GeomOutType Value="1.000000000000000000e+00" ID="UHHNKIBTAZT"/>
+          <InletFaceIndex Value="0.000000000000000000e+00" ID="SFWJZNVESJW"/>
+          <InletFaceMode Value="0.000000000000000000e+00" ID="LYXZRCOJATP"/>
+          <InletFaceU Value="0.000000000000000000e+00" ID="MIDMZIOQWVO"/>
+          <InletLipIndex Value="0.000000000000000000e+00" ID="NUCTOMDHHFW"/>
+          <InletLipMode Value="0.000000000000000000e+00" ID="TIFKVYTOEVP"/>
+          <InletLipU Value="0.000000000000000000e+00" ID="VIVKPEXEESQ"/>
+          <InletModeType Value="2.000000000000000000e+00" ID="SSQVABYQTFI"/>
+          <OutletFaceIndex Value="0.000000000000000000e+00" ID="NZSBQRYLWYL"/>
+          <OutletFaceMode Value="0.000000000000000000e+00" ID="GUNIUHETJKJ"/>
+          <OutletFaceU Value="0.000000000000000000e+00" ID="TWUHXHJTWEO"/>
+          <OutletLipIndex Value="0.000000000000000000e+00" ID="RUGRGNDJVVW"/>
+          <OutletLipMode Value="0.000000000000000000e+00" ID="DRJHVUCGFOD"/>
+          <OutletLipU Value="0.000000000000000000e+00" ID="YEBVMLHAQGA"/>
+          <OutletModeType Value="3.000000000000000000e+00" ID="YQXMCXCJGIB"/>
+          <RotExtensionFlag Value="0.000000000000000000e+00" ID="HPCCCUKGYZG"/>
+        </EngineModel>
         <XForm>
           <Abs_Or_Relitive_flag Value="0.000000000000000000e+00" ID="SDRGCOLQAAG"/>
           <Last_Scale Value="1.208000000000000046e-01" ID="GTEMIRMUFCP"/>
@@ -436,31 +464,6 @@
           <Tess_W Value="1.700000000000000000e+01" ID="ZTPJIQJQBQJ"/>
           <Wake Value="0.000000000000000000e+00" ID="BJOAWBNZHJU"/>
         </Shape>
-        <Negative_Volume_Props>
-          <Negative_Volume_Flag Value="0.000000000000000000e+00" ID="HMNAPIMSPQA"/>
-        </Negative_Volume_Props>
-        <EngineModel>
-          <AutoExtensionFlag Value="0.000000000000000000e+00" ID="UNUZCQTDPXC"/>
-          <AutoExtensionSet Value="1.000000000000000000e+00" ID="FEWSVSJAWJY"/>
-          <ExtensionDistance Value="1.000000000000000000e+01" ID="DLZTGDEKHHT"/>
-          <GeomIOType Value="0.000000000000000000e+00" ID="ZIIITSSFAWW"/>
-          <GeomInType Value="0.000000000000000000e+00" ID="HMCZANPOHPD"/>
-          <GeomOutType Value="1.000000000000000000e+00" ID="UHHNKIBTAZT"/>
-          <InletFaceIndex Value="0.000000000000000000e+00" ID="SFWJZNVESJW"/>
-          <InletFaceMode Value="0.000000000000000000e+00" ID="LYXZRCOJATP"/>
-          <InletFaceU Value="0.000000000000000000e+00" ID="MIDMZIOQWVO"/>
-          <InletLipIndex Value="0.000000000000000000e+00" ID="NUCTOMDHHFW"/>
-          <InletLipMode Value="0.000000000000000000e+00" ID="TIFKVYTOEVP"/>
-          <InletLipU Value="0.000000000000000000e+00" ID="VIVKPEXEESQ"/>
-          <InletModeType Value="2.000000000000000000e+00" ID="SSQVABYQTFI"/>
-          <OutletFaceIndex Value="0.000000000000000000e+00" ID="NZSBQRYLWYL"/>
-          <OutletFaceMode Value="0.000000000000000000e+00" ID="GUNIUHETJKJ"/>
-          <OutletFaceU Value="0.000000000000000000e+00" ID="TWUHXHJTWEO"/>
-          <OutletLipIndex Value="0.000000000000000000e+00" ID="RUGRGNDJVVW"/>
-          <OutletLipMode Value="0.000000000000000000e+00" ID="DRJHVUCGFOD"/>
-          <OutletLipU Value="0.000000000000000000e+00" ID="YEBVMLHAQGA"/>
-          <OutletModeType Value="3.000000000000000000e+00" ID="YQXMCXCJGIB"/>
-        </EngineModel>
         <Mass_Props>
           <CGx Value="0.000000000000000000e+00" ID="EZMHWSDSCSR"/>
           <CGy Value="0.000000000000000000e+00" ID="IVEFVIPWEYU"/>
@@ -1908,6 +1911,32 @@
       <ParmContainer>
         <ID>FJECIMNCTU</ID>
         <Name>WingGeom</Name>
+        <BBox>
+          <X_Len Value="1.283772996295142743e+00" ID="RYBSKHEEYYZ"/>
+          <X_Min Value="2.510212427585184702e+00" ID="VDTFTETSGHO"/>
+          <Y_Len Value="1.776502197131513583e+01" ID="IDVCMMWXUMS"/>
+          <Y_Min Value="-8.882510985657567915e+00" ID="FNFRMJNVNWI"/>
+          <Z_Len Value="7.234364984871957116e-01" ID="SQUKSLSWDLF"/>
+          <Z_Min Value="8.172577144529370730e-02" ID="AMOBBCSZACA"/>
+        </BBox>
+        <WingGeom>
+          <CorrectAirfoilthicknessFlag Value="1.000000000000000000e+00" ID="TXPGWXYGNZA"/>
+          <CurvedArea Value="1.788185294664666714e+01" ID="IBDTLIUEKDI"/>
+          <LECluster Value="2.500000000000000000e-01" ID="HCOKOFBWAND"/>
+          <MAC Value="1.062486254700390376e+00" ID="GOAXFNKEIVM"/>
+          <MaxGrowth Value="1.437005756083839181e+00" ID="THOVRRSOTRH"/>
+          <RelativeDihedralFlag Value="0.000000000000000000e+00" ID="VDSYPPKLOGQ"/>
+          <RelativeTwistFlag Value="0.000000000000000000e+00" ID="BWELTEAFUFN"/>
+          <RotateAirfoilMatchDideralFlag Value="0.000000000000000000e+00" ID="TARRAMBHPKM"/>
+          <SmallPanelW Value="1.042884286975512102e-02" ID="AAMKZCZSVRV"/>
+          <TECluster Value="2.500000000000000000e-01" ID="ECDCJNIMLZN"/>
+          <TotalAR Value="1.712630105155625770e+01" ID="CNTNDKUNGSF"/>
+          <TotalArea Value="1.788185312625758883e+01" ID="JNQMZVRVJLK"/>
+          <TotalChord Value="9.963858788629476049e-01" ID="JAPJUOVCGQH"/>
+          <TotalProjectedSpan Value="1.749999999999999645e+01" ID="FFAJPGNCEUL"/>
+          <TotalSpan Value="1.753655287037196686e+01" ID="HGGJMKQLLWW"/>
+          <TwistAllInXZPlaneFlag Value="0.000000000000000000e+00" ID="GOSSDSYXGLX"/>
+        </WingGeom>
         <XForm>
           <Abs_Or_Relitive_flag Value="1.000000000000000000e+00" ID="XTPJROFLZRP"/>
           <Last_Scale Value="1.207879098894583669e-01" ID="GQBAHUWBSZR"/>
@@ -1980,31 +2009,6 @@
           <WakeAngle Value="0.000000000000000000e+00" ID="LNHCWDJWFSH"/>
           <WakeScale Value="2.000000000000000000e+00" ID="NANZSMNQNTL"/>
         </WakeSettings>
-        <BBox>
-          <X_Len Value="1.283772996295142743e+00" ID="RYBSKHEEYYZ"/>
-          <X_Min Value="2.510212427585184702e+00" ID="VDTFTETSGHO"/>
-          <Y_Len Value="1.776502197131513583e+01" ID="IDVCMMWXUMS"/>
-          <Y_Min Value="-8.882510985657567915e+00" ID="FNFRMJNVNWI"/>
-          <Z_Len Value="7.232651442692947796e-01" ID="SQUKSLSWDLF"/>
-          <Z_Min Value="8.189712566319468090e-02" ID="AMOBBCSZACA"/>
-        </BBox>
-        <WingGeom>
-          <CorrectAirfoilthicknessFlag Value="1.000000000000000000e+00" ID="TXPGWXYGNZA"/>
-          <CurvedArea Value="1.788185294664666714e+01" ID="IBDTLIUEKDI"/>
-          <LECluster Value="2.500000000000000000e-01" ID="HCOKOFBWAND"/>
-          <MAC Value="1.062486254700390376e+00" ID="GOAXFNKEIVM"/>
-          <MaxGrowth Value="1.437005756083839181e+00" ID="THOVRRSOTRH"/>
-          <RelativeDihedralFlag Value="0.000000000000000000e+00" ID="VDSYPPKLOGQ"/>
-          <RelativeTwistFlag Value="0.000000000000000000e+00" ID="BWELTEAFUFN"/>
-          <RotateAirfoilMatchDideralFlag Value="0.000000000000000000e+00" ID="TARRAMBHPKM"/>
-          <SmallPanelW Value="1.042884286975512102e-02" ID="AAMKZCZSVRV"/>
-          <TECluster Value="2.500000000000000000e-01" ID="ECDCJNIMLZN"/>
-          <TotalAR Value="1.712630105155625770e+01" ID="CNTNDKUNGSF"/>
-          <TotalArea Value="1.788185312625758883e+01" ID="JNQMZVRVJLK"/>
-          <TotalChord Value="9.963858788629476049e-01" ID="JAPJUOVCGQH"/>
-          <TotalProjectedSpan Value="1.749999999999999645e+01" ID="FFAJPGNCEUL"/>
-          <TotalSpan Value="1.753655287037196686e+01" ID="HGGJMKQLLWW"/>
-        </WingGeom>
         <EndCap>
           <CapUMaxLength Value="2.500000000000000000e+00" ID="GIZALFDMSPK"/>
           <CapUMaxOffset Value="0.000000000000000000e+00" ID="EOCFEMUIQAH"/>
@@ -2168,6 +2172,7 @@
                 <Taper Value="1.283739522240982422e+00" ID="YGNUCPNJHUP"/>
                 <Tip_Chord Value="1.283739522240982422e+00" ID="SZEZBNJQXKO"/>
                 <Twist Value="0.000000000000000000e+00" ID="CGQSKQCZNAV"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="SPTPTDPGKFK"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="JFZIAJCLOGY"/>
               </XSec>
             </ParmContainer>
@@ -2365,6 +2370,7 @@
                 <Taper Value="8.337478685247244892e-01" ID="MUMVCNCYUIA"/>
                 <Tip_Chord Value="1.070315090409367231e+00" ID="BNPMUSATLYL"/>
                 <Twist Value="0.000000000000000000e+00" ID="IUEWDMFHHNJ"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="MKNPYTLLHUL"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="WLTJWJPRMCI"/>
               </XSec>
             </ParmContainer>
@@ -2562,6 +2568,7 @@
                 <Taper Value="5.243071105140071353e-01" ID="EJGSEEOISPH"/>
                 <Tip_Chord Value="5.611738123920736454e-01" ID="CWEFECWQUTP"/>
                 <Twist Value="0.000000000000000000e+00" ID="HBICHHGNWOK"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="CMZHCZQZCDS"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="DMQQUHYJKZB"/>
               </XSec>
             </ParmContainer>
@@ -2727,6 +2734,32 @@
       <ParmContainer>
         <ID>NLLTMWNMDW</ID>
         <Name>HTailGeom</Name>
+        <BBox>
+          <X_Len Value="8.187555555555547926e-01" ID="FQOHWWTNFXF"/>
+          <X_Min Value="7.334464651639343913e+00" ID="HXQNCTTQEAZ"/>
+          <Y_Len Value="3.409515845765738629e+00" ID="CEHUFQPDSOV"/>
+          <Y_Min Value="-1.704757922882869314e+00" ID="DNNYZMZTVWB"/>
+          <Z_Len Value="8.192307970565611275e-02" ID="LGEHZKTSMBQ"/>
+          <Z_Min Value="1.558679853589794995e+00" ID="BCXVUTIQGKF"/>
+        </BBox>
+        <WingGeom>
+          <CorrectAirfoilthicknessFlag Value="1.000000000000000000e+00" ID="WPWIFBOLPFN"/>
+          <CurvedArea Value="2.136897978952631227e+00" ID="XXAMZCOIXHP"/>
+          <LECluster Value="2.500000000000000000e-01" ID="MTHKMLGTJQQ"/>
+          <MAC Value="6.661651914098973837e-01" ID="GFOAJETHEBQ"/>
+          <MaxGrowth Value="1.606372642358971925e+00" ID="NGSZOFSBNWM"/>
+          <RelativeDihedralFlag Value="0.000000000000000000e+00" ID="ALQGLEVXDWI"/>
+          <RelativeTwistFlag Value="0.000000000000000000e+00" ID="TNTQXIABRSW"/>
+          <RotateAirfoilMatchDideralFlag Value="0.000000000000000000e+00" ID="KJNZRNYZIJE"/>
+          <SmallPanelW Value="1.263792778996321135e-02" ID="EOSORMFPFCH"/>
+          <TECluster Value="2.500000000000000000e-01" ID="YJUWVVCSKJB"/>
+          <TotalAR Value="5.027744326076889259e+00" ID="OWPDDECDDVT"/>
+          <TotalArea Value="2.136897978952631227e+00" ID="EEJSWDMPUDA"/>
+          <TotalChord Value="6.519365079365079252e-01" ID="MIKNSUFGSQE"/>
+          <TotalProjectedSpan Value="3.277770078740158244e+00" ID="NRXWCBUKWEZ"/>
+          <TotalSpan Value="3.277770078740158244e+00" ID="ZBPKEFHNWEJ"/>
+          <TwistAllInXZPlaneFlag Value="0.000000000000000000e+00" ID="WDJNORAOLSH"/>
+        </WingGeom>
         <XForm>
           <Abs_Or_Relitive_flag Value="1.000000000000000000e+00" ID="TYGKAOVSCWB"/>
           <Last_Scale Value="1.208000000000000046e-01" ID="WYJOJMQQFBB"/>
@@ -2799,31 +2832,6 @@
           <WakeAngle Value="0.000000000000000000e+00" ID="DENVVBACTBQ"/>
           <WakeScale Value="2.000000000000000000e+00" ID="MOZFKEJVHRD"/>
         </WakeSettings>
-        <BBox>
-          <X_Len Value="8.187555555555547926e-01" ID="FQOHWWTNFXF"/>
-          <X_Min Value="7.334464651639343913e+00" ID="HXQNCTTQEAZ"/>
-          <Y_Len Value="3.409515845765738629e+00" ID="CEHUFQPDSOV"/>
-          <Y_Min Value="-1.704757922882869314e+00" ID="DNNYZMZTVWB"/>
-          <Z_Len Value="8.192307970565611275e-02" ID="LGEHZKTSMBQ"/>
-          <Z_Min Value="1.558679853589794995e+00" ID="BCXVUTIQGKF"/>
-        </BBox>
-        <WingGeom>
-          <CorrectAirfoilthicknessFlag Value="1.000000000000000000e+00" ID="WPWIFBOLPFN"/>
-          <CurvedArea Value="2.136897978952631227e+00" ID="XXAMZCOIXHP"/>
-          <LECluster Value="2.500000000000000000e-01" ID="MTHKMLGTJQQ"/>
-          <MAC Value="6.661651914098973837e-01" ID="GFOAJETHEBQ"/>
-          <MaxGrowth Value="1.606372642358971925e+00" ID="NGSZOFSBNWM"/>
-          <RelativeDihedralFlag Value="0.000000000000000000e+00" ID="ALQGLEVXDWI"/>
-          <RelativeTwistFlag Value="0.000000000000000000e+00" ID="TNTQXIABRSW"/>
-          <RotateAirfoilMatchDideralFlag Value="0.000000000000000000e+00" ID="KJNZRNYZIJE"/>
-          <SmallPanelW Value="1.263792778996321135e-02" ID="EOSORMFPFCH"/>
-          <TECluster Value="2.500000000000000000e-01" ID="YJUWVVCSKJB"/>
-          <TotalAR Value="5.027744326076889259e+00" ID="OWPDDECDDVT"/>
-          <TotalArea Value="2.136897978952631227e+00" ID="EEJSWDMPUDA"/>
-          <TotalChord Value="6.519365079365079252e-01" ID="MIKNSUFGSQE"/>
-          <TotalProjectedSpan Value="3.277770078740158244e+00" ID="NRXWCBUKWEZ"/>
-          <TotalSpan Value="3.277770078740158244e+00" ID="ZBPKEFHNWEJ"/>
-        </WingGeom>
         <EndCap>
           <CapUMaxLength Value="2.750000000000000000e+00" ID="FPYSVXAQSTU"/>
           <CapUMaxOffset Value="0.000000000000000000e+00" ID="MWQGOTOATST"/>
@@ -2987,6 +2995,7 @@
                 <Taper Value="8.187555555555555697e-01" ID="UEQWTBKJPCF"/>
                 <Tip_Chord Value="8.187555555555555697e-01" ID="QDOCIEORSMW"/>
                 <Twist Value="0.000000000000000000e+00" ID="IAALZNTPSYV"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="FQEIMMQTWJB"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="KAWMRCJOXVH"/>
               </XSec>
             </ParmContainer>
@@ -3158,6 +3167,7 @@
                 <Taper Value="5.925058548009367598e-01" ID="MCZOERTZHTQ"/>
                 <Tip_Chord Value="4.851174603174602806e-01" ID="FBGTTEYEVLB"/>
                 <Twist Value="0.000000000000000000e+00" ID="RYZAZGMILGF"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="PKSSUDKNOUB"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="BWQUGVUUCWD"/>
               </XSec>
             </ParmContainer>
@@ -3297,6 +3307,32 @@
       <ParmContainer>
         <ID>JWMUAVWHDI</ID>
         <Name>VTailGeom</Name>
+        <BBox>
+          <X_Len Value="1.404403165395914144e+00" ID="SMCMZASREVH"/>
+          <X_Min Value="6.839537298409688049e+00" ID="QBCMSJLNIRN"/>
+          <Y_Len Value="1.237719597075208205e-01" ID="NSJGLNVYHSR"/>
+          <Y_Min Value="-6.188597985376040334e-02" ID="GKUREBRGUXU"/>
+          <Z_Len Value="1.456647055610614583e+00" ID="NDAVYEKVTFI"/>
+          <Z_Min Value="1.631075839717028575e-01" ID="PSEHMJIHGEQ"/>
+        </BBox>
+        <WingGeom>
+          <CorrectAirfoilthicknessFlag Value="1.000000000000000000e+00" ID="JQLRBNCUXUV"/>
+          <CurvedArea Value="1.466602779399800882e+00" ID="PTIDPNNIBKX"/>
+          <LECluster Value="2.500000000000000000e-01" ID="NMANLXJVSYR"/>
+          <MAC Value="1.055086277965417763e+00" ID="WOGNRSQROFD"/>
+          <MaxGrowth Value="1.437005756083839181e+00" ID="UOKZIBXBRHN"/>
+          <RelativeDihedralFlag Value="0.000000000000000000e+00" ID="XRFKANRHNSB"/>
+          <RelativeTwistFlag Value="0.000000000000000000e+00" ID="MSCMKGTPBBD"/>
+          <RotateAirfoilMatchDideralFlag Value="0.000000000000000000e+00" ID="PMGLEYLVPVU"/>
+          <SmallPanelW Value="9.915986936440088564e-03" ID="OQQXYMPWAVT"/>
+          <TECluster Value="2.500000000000000000e-01" ID="HPAQHEDTTCE"/>
+          <TotalAR Value="1.364395283528002878e+00" ID="JCEWCMGRTWG"/>
+          <TotalArea Value="1.466602781905869346e+00" ID="SNTDOQEXYHK"/>
+          <TotalChord Value="9.250851977828168371e-01" ID="WPHCDOGWOCB"/>
+          <TotalProjectedSpan Value="1.414576232813706147e+00" ID="VZHWFVYBWOK"/>
+          <TotalSpan Value="1.414576232813706147e+00" ID="UVXLTEOWETP"/>
+          <TwistAllInXZPlaneFlag Value="0.000000000000000000e+00" ID="XIMSUWMARQN"/>
+        </WingGeom>
         <XForm>
           <Abs_Or_Relitive_flag Value="1.000000000000000000e+00" ID="OXKNMLZPVQC"/>
           <Last_Scale Value="1.208000000000000046e-01" ID="MFXOQMSDDIU"/>
@@ -3369,31 +3405,6 @@
           <WakeAngle Value="0.000000000000000000e+00" ID="OBUCCCAJDSV"/>
           <WakeScale Value="2.000000000000000000e+00" ID="ERWDSMMBBGW"/>
         </WakeSettings>
-        <BBox>
-          <X_Len Value="1.404403165395914144e+00" ID="SMCMZASREVH"/>
-          <X_Min Value="6.839537298409688049e+00" ID="QBCMSJLNIRN"/>
-          <Y_Len Value="1.237719597075208205e-01" ID="NSJGLNVYHSR"/>
-          <Y_Min Value="-6.188597985376040334e-02" ID="GKUREBRGUXU"/>
-          <Z_Len Value="1.456647055610614583e+00" ID="NDAVYEKVTFI"/>
-          <Z_Min Value="1.631075839717028575e-01" ID="PSEHMJIHGEQ"/>
-        </BBox>
-        <WingGeom>
-          <CorrectAirfoilthicknessFlag Value="1.000000000000000000e+00" ID="JQLRBNCUXUV"/>
-          <CurvedArea Value="1.466602779399800882e+00" ID="PTIDPNNIBKX"/>
-          <LECluster Value="2.500000000000000000e-01" ID="NMANLXJVSYR"/>
-          <MAC Value="1.055086277965417763e+00" ID="WOGNRSQROFD"/>
-          <MaxGrowth Value="1.437005756083839181e+00" ID="UOKZIBXBRHN"/>
-          <RelativeDihedralFlag Value="0.000000000000000000e+00" ID="XRFKANRHNSB"/>
-          <RelativeTwistFlag Value="0.000000000000000000e+00" ID="MSCMKGTPBBD"/>
-          <RotateAirfoilMatchDideralFlag Value="0.000000000000000000e+00" ID="PMGLEYLVPVU"/>
-          <SmallPanelW Value="9.915986936440088564e-03" ID="OQQXYMPWAVT"/>
-          <TECluster Value="2.500000000000000000e-01" ID="HPAQHEDTTCE"/>
-          <TotalAR Value="1.364395283528002878e+00" ID="JCEWCMGRTWG"/>
-          <TotalArea Value="1.466602781905869346e+00" ID="SNTDOQEXYHK"/>
-          <TotalChord Value="9.250851977828168371e-01" ID="WPHCDOGWOCB"/>
-          <TotalProjectedSpan Value="1.414576232813706147e+00" ID="VZHWFVYBWOK"/>
-          <TotalSpan Value="1.414576232813706147e+00" ID="UVXLTEOWETP"/>
-        </WingGeom>
         <EndCap>
           <CapUMaxLength Value="1.000000000000000000e+00" ID="DAFZBAZENLL"/>
           <CapUMaxOffset Value="0.000000000000000000e+00" ID="NQYVIOYYMCM"/>
@@ -3557,6 +3568,7 @@
                 <Taper Value="7.303583522297807384e-01" ID="KMJRRWEFNKV"/>
                 <Tip_Chord Value="7.303583522297807384e-01" ID="RXYMXFPOIBH"/>
                 <Twist Value="0.000000000000000000e+00" ID="GBDHYHRQLFG"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="QGGNPYSBAIN"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="WXGPGRVKQXF"/>
               </XSec>
             </ParmContainer>
@@ -3728,6 +3740,7 @@
                 <Taper Value="1.693691300339110084e+00" ID="LEJIOOMPLFG"/>
                 <Tip_Chord Value="1.237001587301586936e+00" ID="MMRBPFUDOZN"/>
                 <Twist Value="0.000000000000000000e+00" ID="OPLFRNYVYCZ"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="SJCVEZJUTBM"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="SXVVCHWEROH"/>
               </XSec>
             </ParmContainer>
@@ -3899,6 +3912,7 @@
                 <Taper Value="7.309214714756280262e-01" ID="UORKIATCHWA"/>
                 <Tip_Chord Value="9.041510204081636415e-01" ID="DANVBQHONXB"/>
                 <Twist Value="0.000000000000000000e+00" ID="QHCMSCJJOOC"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="DLSYWMFYABX"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="DVZQICJOVLE"/>
               </XSec>
             </ParmContainer>
@@ -4070,6 +4084,7 @@
                 <Taper Value="5.948648034537602491e-01" ID="SMZGDFXJGPH"/>
                 <Tip_Chord Value="5.378476190476190189e-01" ID="LABLMNIBETF"/>
                 <Twist Value="0.000000000000000000e+00" ID="IVFBEMZXRBB"/>
+                <TwistInXZPlaneFlag Value="0.000000000000000000e+00" ID="GYYMCBZVHDB"/>
                 <Twist_Location Value="2.500000000000000000e-01" ID="XCDZEOHCPDC"/>
               </XSec>
             </ParmContainer>
@@ -4444,7 +4459,7 @@
         <UseWakeNodeMatrixPreconditioner Value="0.000000000000000000e+00" ID="MHZIUSFPRDC"/>
         <Vinf Value="3.000000000000000000e+01" ID="OAUGFIMNYIW"/>
         <Vref Value="3.000000000000000000e+01" ID="KXGWQXGKWPX"/>
-        <WakeNumIter Value="1.500000000000000000e+01" ID="PGXCLVPVJVQ"/>
+        <WakeNumIter Value="5.000000000000000000e+00" ID="PGXCLVPVJVQ"/>
         <WakeRelax Value="1.000000000000000000e+00" ID="DRXBWSMLBTK"/>
         <Write2DFEMFlag Value="0.000000000000000000e+00" ID="FRCRUNJPTVE"/>
         <WriteTecplotFlag Value="0.000000000000000000e+00" ID="XLOIWJBSIOP"/>
@@ -4453,13 +4468,13 @@
         <Zcg Value="1.640000000000000069e-01" ID="EAXPHWYCOQT"/>
         <bref Value="1.753655287037196686e+01" ID="OSLKEOXGSND"/>
         <cref Value="9.963858788629476049e-01" ID="HOUBFMZNZIB"/>
-        <m_ConvergenceXMax Value="1.500000000000000000e+01" ID="ALHKXUENFVJ"/>
+        <m_ConvergenceXMax Value="5.000000000000000000e+00" ID="ALHKXUENFVJ"/>
         <m_ConvergenceXMaxIsManual Value="0.000000000000000000e+00" ID="PSYRJVBMVDE"/>
         <m_ConvergenceXMin Value="1.000000000000000000e+00" ID="BPIJNVFDOEB"/>
         <m_ConvergenceXMinIsManual Value="0.000000000000000000e+00" ID="BZPEQVKYDGI"/>
         <m_ConvergenceYMax Value="0.000000000000000000e+00" ID="PVCKNOUAURT"/>
         <m_ConvergenceYMaxIsManual Value="0.000000000000000000e+00" ID="XAIITDLCWTP"/>
-        <m_ConvergenceYMin Value="-6.000000000000000000e+00" ID="VXCUGNJRNVC"/>
+        <m_ConvergenceYMin Value="-5.000000000000000000e+00" ID="VXCUGNJRNVC"/>
         <m_ConvergenceYMinIsManual Value="0.000000000000000000e+00" ID="IVFGWSRZSGM"/>
         <m_CpSliceXMax Value="1.000000000000000000e+00" ID="LOZDZMIHUPK"/>
         <m_CpSliceXMaxIsManual Value="0.000000000000000000e+00" ID="AAZJLFYSAPP"/>
@@ -4480,9 +4495,9 @@
         <m_LoadDistYMin Value="-1.000000000000000056e-01" ID="INYKJQFFXSO"/>
         <m_LoadDistYMinIsManual Value="0.000000000000000000e+00" ID="KDDNKKUUOAX"/>
         <m_PropBladesMode Value="0.000000000000000000e+00" ID="XGQENXNWLDQ"/>
-        <m_SweepXMax Value="1.510000000000000057e-02" ID="KTPKOCDTTQE"/>
+        <m_SweepXMax Value="1.530000000000000110e-02" ID="KTPKOCDTTQE"/>
         <m_SweepXMaxIsManual Value="0.000000000000000000e+00" ID="WOJTCWRPRXC"/>
-        <m_SweepXMin Value="1.500000000000000118e-02" ID="UMCTGDNJORT"/>
+        <m_SweepXMin Value="1.510000000000000057e-02" ID="UMCTGDNJORT"/>
         <m_SweepXMinIsManual Value="0.000000000000000000e+00" ID="UCCFTJVUMGQ"/>
         <m_SweepYMax Value="5.400000000000000355e-01" ID="XQCMCWRSSSG"/>
         <m_SweepYMaxIsManual Value="0.000000000000000000e+00" ID="SUKVXUXDGSI"/>

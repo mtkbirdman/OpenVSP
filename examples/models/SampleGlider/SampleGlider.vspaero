@@ -4,7 +4,7 @@ Bref = 27
 X_cg = 1.4 
 Y_cg = 0 
 Z_cg = 0 
-Mach = 0.1 
+Mach = 0 
 AoA = 0 
 Beta = 0 
 ReCref = 1e+06 
@@ -51,4 +51,4 @@ NumberOfQuadTrees = 1
 1 2 0 
 NumberOfInlets = 0 
 NumberOfNozzles = 0 
-VSP_StabilityType = 0 
+VSP_StabilityType = 1 

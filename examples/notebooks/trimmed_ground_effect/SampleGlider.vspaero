@@ -1,15 +1,15 @@
 Sref = 18 
 Cref = 0.625 
 Bref = 27 
-X_cg = 1.3999999999999999 
+X_cg = 1.4 
 Y_cg = 0 
 Z_cg = 0 
-Mach = 0.029000000000000001 
-AoA = -2 
+Mach = 0.029 
+AoA = -3 
 Beta = 0 
 ReCref = 430000 
 Vinf = 10 
-Rho = 1.2250000000000001 
+Rho = 1.225 
 StallModel = 0 
 Clo2D = 0 
 CLMax2D = 1 
@@ -21,7 +21,7 @@ ImplicitWake = 0
 ImplicitWakeStartIteration = 0 
 FarDist = -1 
 NumWakeNodes = 8 
-WakeIters = 10 
+WakeIters = 20 
 WakeRelax = 1 
 ForwardGMRESConvergenceFactor = 1 
 AdjointGMRESConvergenceFactor = 1 
@@ -40,7 +40,7 @@ WingGeom_Surf0_AILERON,WingGeom_Surf1_AILERON
 ELEVATOR_GROUP
 HTailGeom_Surf0_ELEVATOR,HTailGeom_Surf1_ELEVATOR
 1, -1
--20
+0
 RUDDER_GROUP
 VTailGeom_Surf0_RUDDER
 -1
