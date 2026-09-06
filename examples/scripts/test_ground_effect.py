@@ -1,35 +1,49 @@
+from pathlib import Path
 import sys
-import os
 
 import numpy as np
-import pandas as pd
-from pathlib import Path
-
-# ../bin/AnalysisVSPAERO.py をモジュールとしてインポート
-sys.path.append(os.path.join('../..')) # 親ディレクトリをモジュール探索パスに追加
-from src.AnalysisVSPAERO import *
-from src.AnalysisVSPAERO import *
-
 import openvsp as vsp
 
-if __name__=='__main__':
-    
-    # Clear the current VSP model and read the new VSP file
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from src.AnalysisVSPAERO import make_CDo_correction, vsp_sweep_wig
+
+MODEL_PATH = REPO_ROOT / "examples" / "models" / "SampleGlider" / "SampleGlider.vsp3"
+
+
+if __name__ == "__main__":
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(r"../models/SampleGlider/SampleGlider.vsp3")
+    vsp.ReadVSPFile(str(MODEL_PATH))
     vsp.Update()
 
-    # Define the list of alpha angles, the Mach number and Reynolds number for the sweep
     alpha = [0]
     mach = [0.1]
     reynolds = [1e6]
 
-    # Define the list of height
     bref = 27
-    height = list((1-np.cos(np.linspace(0,1,12)*np.pi/2))*bref)[1:] + [999]
-    
-    df = vsp_sweep_wig(vsp, alpha, mach, reynolds, height, AnalysisMethod=0, verbose=1)
-    df = make_CDo_correction(vsp, df, Weight=580, xTr=(0.5, 0.7), CDpCL=0.0016, thickness=0.19, interference_factor=1.14, altitude=0, dT=0)
-    
-    df.to_csv('SampleGlider_DegenGeom.polar', sep='\t')
+    height = list((1 - np.cos(np.linspace(0, 1, 12) * np.pi / 2)) * bref)[1:] + [999]
+
+    polar = vsp_sweep_wig(
+        vsp,
+        alpha,
+        mach,
+        reynolds,
+        height,
+        AnalysisMethod=0,
+        verbose=1,
+    )
+    polar = make_CDo_correction(
+        vsp,
+        polar,
+        Weight=580,
+        xTr=(0.5, 0.7),
+        CDpCL=0.0016,
+        thickness=0.19,
+        interference_factor=1.14,
+        altitude=0,
+        dT=0,
+    )
+    polar.to_csv("SampleGlider_DegenGeom.polar", sep="\t")

@@ -620,7 +620,7 @@ def _trim_elevator_at_fixed_alpha(
     )
 
 
-def vsp_trimed_sweep(
+def vsp_trimmed_sweep(
     vsp,
     alpha_list,
     Weight,
@@ -1153,27 +1153,27 @@ def vsp_trimed_sweep(
         vsp.SetParmVal(elevator_parm_id, original_elevator_deg)
         vsp.Update()
 
-    trimed_polar = pd.concat(frames, ignore_index=True)
-    trimed_polar['gamma'] = np.arctan(1.0 / trimed_polar['L_D'])
-    trimed_polar['Velocity'] = np.sqrt(
+    trimmed_polar = pd.concat(frames, ignore_index=True)
+    trimmed_polar['gamma'] = np.arctan(1.0 / trimmed_polar['L_D'])
+    trimmed_polar['Velocity'] = np.sqrt(
         (2.0 * float(Weight) * g)
         / (
             density
             * Sref
-            * trimed_polar['CL']
-            * np.cos(trimed_polar['gamma'])
+            * trimmed_polar['CL']
+            * np.cos(trimmed_polar['gamma'])
         )
     )
-    trimed_polar['Vx'] = (
-        trimed_polar['Velocity']
-        * np.cos(trimed_polar['gamma'])
+    trimmed_polar['Vx'] = (
+        trimmed_polar['Velocity']
+        * np.cos(trimmed_polar['gamma'])
         * 3.6
     )
-    trimed_polar['vz'] = (
-        trimed_polar['Velocity']
-        * np.sin(trimed_polar['gamma'])
+    trimmed_polar['vz'] = (
+        trimmed_polar['Velocity']
+        * np.sin(trimmed_polar['gamma'])
     )
-    return trimed_polar
+    return trimmed_polar
 
 def vsp_stability_derivatives(
     vsp3_path,
@@ -2706,7 +2706,7 @@ def validate_vsp3_for_stability_derivatives(vsp3_path, *, verbose=1):
 
 def make_CDo_correction(
     vsp, 
-    trimed_polar, 
+    trimmed_polar, 
     Weight, 
     CDpCL=0.0065, 
     thickness=0.12, 
@@ -2727,7 +2727,7 @@ def make_CDo_correction(
     g = get_gravity()
     Sref = vsp.GetDoubleAnalysisInput('VSPAEROSweep', 'Sref')[0]  # Get wing area [m2]
     density = get_density(altitude=altitude, dT=dT)  # Get density based on altitude [kg/m*3]
-    reynolds = trimed_polar['Re_1e6'].values * 1e6  # Get Reynolds number
+    reynolds = trimmed_polar['Re_1e6'].values * 1e6  # Get Reynolds number
 
     # Correct drag based on percentage of laminar flow area
     CDo = 0
@@ -2743,18 +2743,18 @@ def make_CDo_correction(
     form_factor = 1 + 2 * thickness + 60 * (thickness ** 4)
 
     # Corrected CD0, CDtotal, and lift-drag ratio are calculated and added to the data frame
-    trimed_polar['CDo_corr'] = CDo * form_factor * interference_factor + CDpCL * (trimed_polar['CL'].values) ** 2
-    trimed_polar['CDtot_corr'] = trimed_polar['CDo_corr'].values + trimed_polar['CDi'].values
-    trimed_polar['L_D_corr'] = trimed_polar['CL'].values / trimed_polar['CDtot_corr'].values
+    trimmed_polar['CDo_corr'] = CDo * form_factor * interference_factor + CDpCL * (trimmed_polar['CL'].values) ** 2
+    trimmed_polar['CDtot_corr'] = trimmed_polar['CDo_corr'].values + trimmed_polar['CDi'].values
+    trimmed_polar['L_D_corr'] = trimmed_polar['CL'].values / trimmed_polar['CDtot_corr'].values
 
     # Calculate angle of attack from modified lift-drag ratio
-    trimed_polar['gamma'] = np.arctan(1 / trimed_polar['L_D_corr'].values)
+    trimmed_polar['gamma'] = np.arctan(1 / trimmed_polar['L_D_corr'].values)
 
     # Calculate velocity
-    trimed_polar['Velocity'] = np.sqrt((2 * Weight * g) / (density * Sref * trimed_polar['CL'].values * np.cos(trimed_polar['gamma'].values)))
+    trimmed_polar['Velocity'] = np.sqrt((2 * Weight * g) / (density * Sref * trimmed_polar['CL'].values * np.cos(trimmed_polar['gamma'].values)))
 
     # Calculates horizontal velocity (Vx) and vertical velocity (Vz) and adds them to the data frame
-    trimed_polar['Vx'] = trimed_polar['Velocity'].values * np.cos(trimed_polar['gamma'].values) * 3.6  # horizontal velocity [km/h]
-    trimed_polar['vz'] = trimed_polar['Velocity'].values * np.sin(trimed_polar['gamma'].values)  # vertical velocity [m/s]
-    return trimed_polar  # Returns corrected data
+    trimmed_polar['Vx'] = trimmed_polar['Velocity'].values * np.cos(trimmed_polar['gamma'].values) * 3.6  # horizontal velocity [km/h]
+    trimmed_polar['vz'] = trimmed_polar['Velocity'].values * np.sin(trimmed_polar['gamma'].values)  # vertical velocity [m/s]
+    return trimmed_polar  # Returns corrected data
 

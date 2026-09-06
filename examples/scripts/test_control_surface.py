@@ -1,30 +1,47 @@
+from pathlib import Path
 import sys
-import os
 
 import numpy as np
-from pathlib import Path
-
-# ../bin/AnalysisVSPAERO.py をモジュールとしてインポート
-sys.path.append(os.path.join('../..')) # 親ディレクトリをモジュール探索パスに追加
-from src.AnalysisVSPAERO import *
-
 import openvsp as vsp
 
-if __name__=='__main__':
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-    # Close and open the file
+from src.AnalysisVSPAERO import vsp_sweep
+from src.util import set_control_surface
+
+MODEL_PATH = REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
+
+
+if __name__ == "__main__":
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(r"../models/G103A/G103A.vsp3")
+    vsp.ReadVSPFile(str(MODEL_PATH))
     vsp.Update()
 
-    # Set control surface
-    set_control_surface(geom_name='WingGeom',  deflection=10,  cs_group_name='AILERON_GROUP', gains=(1,1))
-    set_control_surface(geom_name='HTailGeom', deflection=0, cs_group_name='ELEVATOR_GROUP', gains=(1,-1))
-    set_control_surface(geom_name='VTailGeom', deflection=0,  cs_group_name='RUDDER_GROUP')
+    set_control_surface(
+        vsp,
+        geom_name="WingGeom",
+        deflection=10,
+        cs_group_name="AILERON_GROUP",
+        gains=(1, 1),
+    )
+    set_control_surface(
+        vsp,
+        geom_name="HTailGeom",
+        deflection=0,
+        cs_group_name="ELEVATOR_GROUP",
+        gains=(1, -1),
+    )
+    set_control_surface(
+        vsp,
+        geom_name="VTailGeom",
+        deflection=0,
+        cs_group_name="RUDDER_GROUP",
+    )
     vsp.Update()
 
-    # Execute VSPAEROSweep
     alpha = np.linspace(-4, 12, 9)
     mach = [0.1]
     vsp_sweep(vsp=vsp, alpha=alpha, mach=mach)

@@ -48,4 +48,4 @@ VTailGeom_Surf0_RUDDER
 NumberofSurveyPoints = 0 
 NumberOfInlets = 0 
 NumberOfNozzles = 0 
-VSP_StabilityType = 0 
+VSP_StabilityType = 1 
