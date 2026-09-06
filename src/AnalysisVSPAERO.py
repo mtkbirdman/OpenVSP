@@ -17,46 +17,8 @@ from .util import (
 
 from .ISAspecification import *
 
-# G103A stability-derivative preflight specification.
-# This validator is intentionally not generic: it checks the naming and set
-# conventions used by the G103A OpenVSP model before running stability analyses.
-G103A_EXPECTED_GEOMS = {
-    'FuselageGeom': 'FUSELAGE',
-    'WingGeom': 'WING',
-    'HTailGeom': 'WING',
-    'VTailGeom': 'WING',
-}
-
-G103A_EXPECTED_SUBSURFACES = {
-    'WingGeom': 'AILERON',
-    'HTailGeom': 'ELEVATOR',
-    'VTailGeom': 'RUDDER',
-}
-
-G103A_EXPECTED_SETS = {
-    'ThickGeom': ['FuselageGeom'],
-    'ThinGeom': ['WingGeom', 'HTailGeom', 'VTailGeom'],
-}
-
-G103A_EXPECTED_CONTROL_GROUPS = {
-    'AILERON_GROUP': {
-        'geom_name': 'WingGeom',
-        'subsurface_name': 'AILERON',
-        'expected_gains': [1.0, 1.0],
-    },
-    'ELEVATOR_GROUP': {
-        'geom_name': 'HTailGeom',
-        'subsurface_name': 'ELEVATOR',
-        'expected_gains': [1.0, -1.0],
-    },
-    'RUDDER_GROUP': {
-        'geom_name': 'VTailGeom',
-        'subsurface_name': 'RUDDER',
-        'expected_gains': [-1.0],
-    },
-}
-
-G103A_REF_GEOM_NAME = 'WingGeom'
+# Default reference-geometry name retained by legacy trim workflows.
+DEFAULT_REF_GEOM_NAME = 'WingGeom'
 
 def vsp_sweep(
     vsp,
@@ -761,7 +723,7 @@ def vsp_trimed_sweep(
     # Resolve the existing elevator once. During trim only DeflectionAngle is
     # changed; the control-surface group and gains are not rebuilt.
     vsp.Update()
-    wing_id = find_one_geom(vsp, G103A_REF_GEOM_NAME)
+    wing_id = find_one_geom(vsp, DEFAULT_REF_GEOM_NAME)
     settings_id = vsp.FindContainer('VSPAEROSettings', 0)
     elevator_group_names = [
         vsp.GetVSPAEROControlGroupName(group_index)
@@ -1219,21 +1181,27 @@ def vsp_stability_derivatives(
     alpha=2.0,
     mach=0.1,
     reynolds=4.4e6,
+    stability_type=vsp.STABILITY_DEFAULT,
     verbose=1,
     vspaero_verbose=0,
     ncpu=None,
     wake_num_iter=None,
+    wake_num_nodes=None,
     fixed_wake_flag=None,
     redirect_file='',
     stop_before_run=False,
 ):
     r"""Run a steady VSPAERO stability-derivative analysis.
 
-    The function validates and loads a G103A-style ``.vsp3`` model, executes
-    ``VSPAEROComputeGeometry``, runs ``VSPAEROSweep`` with
-    ``STABILITY_DEFAULT``, and extracts the numeric ``VSPAERO_Stab`` result.
-    Expected operational failures are reported in the returned diagnostic
-    dictionary instead of being raised directly.
+    The function loads the ``.vsp3`` model, uses the model's saved VSPAERO
+    thick/thin geometry selection and reference settings, executes
+    ``VSPAEROComputeGeometry``, then runs ``VSPAEROSweep`` in either the normal
+    steady finite-difference or steady adjoint stability mode.
+
+    No particular Geom names, Set names, or control-surface group names are
+    required.  A model may therefore use only thin geometry, only thick
+    geometry, or a mixed thick/thin representation as configured in the
+    ``.vsp3`` file.
 
     Parameters
     ----------
@@ -1244,7 +1212,11 @@ def vsp_stability_derivatives(
     mach : float, optional
         Analysis Mach number.
     reynolds : float, optional
-        Reynolds number based on VSPAERO reference chord.
+        Reynolds number based on the saved VSPAERO reference chord.
+    stability_type : int, optional
+        Steady stability-derivative method. Use ``vsp.STABILITY_DEFAULT`` for
+        the normal finite-difference calculation or ``vsp.STABILITY_ADJOINT``
+        for the steady adjoint calculation.
     verbose : int or bool, optional
         ``0`` suppresses progress, ``1`` prints major progress and the final
         status, and values of ``2`` or greater also print timing details.
@@ -1256,12 +1228,13 @@ def vsp_stability_derivatives(
         default unchanged.
     wake_num_iter : int or None, optional
         Value assigned to ``VSPAEROSweep/WakeNumIter``. Valid explicit values
-        are 3 through 255. Changing this setting can affect both execution time
-        and wake convergence.
+        are 3 through 255.
+    wake_num_nodes : int or None, optional
+        Value assigned to ``VSPAEROSweep/NumWakeNodes``. ``None`` leaves the
+        loaded/default value unchanged.
     fixed_wake_flag : bool or None, optional
         Value assigned to ``VSPAEROSweep/FixedWakeFlag``. When enabled, the
-        fixed-wake setting takes precedence over ``wake_num_iter``. ``None``
-        leaves the loaded/default setting unchanged.
+        fixed-wake setting takes precedence over ``wake_num_iter``.
     redirect_file : str or None, optional
         Value assigned to ``VSPAEROSweep/RedirectFile``. Use an empty string to
         suppress redirected output, ``"stdout"`` to display it, or a path to
@@ -1275,16 +1248,8 @@ def vsp_stability_derivatives(
     dict
         Diagnostic report containing ``passed``, ``errors``, ``warnings``,
         ``infos``, OpenVSP result identifiers, the stability-derivative
-        ``pandas.DataFrame``, timing data, and the requested VSPAERO settings.
-
-    Notes
-    -----
-    This workflow intentionally remains procedural and separate from the
-    elevator-trim algorithm. Stability-specific wake, diagnostic, and result
-    extraction settings are kept visible in this public function.
+        ``pandas.DataFrame``, timing data, and the effective VSPAERO settings.
     """
-    import time
-
     result = {
         'passed': False,
         'errors': [],
@@ -1299,8 +1264,10 @@ def vsp_stability_derivatives(
         'timing': {},
         'stopped_before_run': bool(stop_before_run),
         'vspaero_settings': {
+            'stability_type': stability_type,
             'ncpu': ncpu,
             'wake_num_iter': wake_num_iter,
+            'wake_num_nodes': wake_num_nodes,
             'fixed_wake_flag': fixed_wake_flag,
             'redirect_file': redirect_file,
             'stop_before_run': bool(stop_before_run),
@@ -1320,13 +1287,41 @@ def vsp_stability_derivatives(
         if verbose and int(verbose) >= level:
             print(message, flush=True)
 
-    vsp3_path = os.fspath(vsp3_path)
-    if not os.path.isfile(vsp3_path):
-        add('errors', 'FILE_NOT_FOUND', 'The specified .vsp3 file was not found.', {'vsp3_path': vsp3_path})
+    stability_types = {
+        int(vsp.STABILITY_DEFAULT): ('STABILITY_DEFAULT', '.stab'),
+        int(vsp.STABILITY_ADJOINT): ('STABILITY_ADJOINT', '.adjoint.stab'),
+    }
+    stability_type = int(stability_type)
+    if stability_type not in stability_types:
+        add(
+            'errors',
+            'INVALID_STABILITY_TYPE',
+            'stability_type must be vsp.STABILITY_DEFAULT or '
+            'vsp.STABILITY_ADJOINT.',
+            {'stability_type': stability_type},
+        )
         result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
         return result
 
-    vprint(1, f'\n-> Calculate G103A VSPAERO stability derivatives: {vsp3_path}')
+    stability_name, stab_file_suffix = stability_types[stability_type]
+    result['vspaero_settings'].update({
+        'stability_type': stability_type,
+        'stability_name': stability_name,
+        'stab_file_suffix': stab_file_suffix,
+    })
+
+    vsp3_path = os.fspath(vsp3_path)
+    if not os.path.isfile(vsp3_path):
+        add(
+            'errors',
+            'FILE_NOT_FOUND',
+            'The specified .vsp3 file was not found.',
+            {'vsp3_path': vsp3_path},
+        )
+        result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
+        return result
+
+    vprint(1, f'\n-> Calculate VSPAERO stability derivatives: {vsp3_path}')
 
     read_start = time.perf_counter()
     try:
@@ -1335,36 +1330,59 @@ def vsp_stability_derivatives(
         vsp.ReadVSPFile(vsp3_path)
         vsp.Update()
     except Exception as err:
-        add('errors', 'READ_VSP3_FAILED', 'OpenVSP failed to read the .vsp3 file.', {'error': repr(err)})
+        add(
+            'errors',
+            'READ_VSP3_FAILED',
+            'OpenVSP failed to read the .vsp3 file.',
+            {'error': repr(err)},
+        )
         result['timing']['read_vsp3_elapsed_s'] = time.perf_counter() - read_start
         result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
         return result
     result['timing']['read_vsp3_elapsed_s'] = time.perf_counter() - read_start
 
-    thick_set = int(vsp.GetSetIndex('ThickGeom'))
-    thin_set = int(vsp.GetSetIndex('ThinGeom'))
-    if thick_set < 0:
-        add('errors', 'MISSING_SET', "Required set 'ThickGeom' was not found.")
-    if thin_set < 0:
-        add('errors', 'MISSING_SET', "Required set 'ThinGeom' was not found.")
-    if result['errors']:
-        result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
-        return result
-
-    wing_ids = list(vsp.FindGeomsWithName(G103A_REF_GEOM_NAME))
-    if len(wing_ids) != 1:
-        add('errors', 'REF_GEOM_NOT_FOUND', f"Reference Geom '{G103A_REF_GEOM_NAME}' must exist exactly once.", {'geom_ids': wing_ids})
-        result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
-        return result
-    wing_id = wing_ids[0]
-
+    # Use the geometry selection saved in the model.  SET_NONE is a valid
+    # selection for either side; only selecting no geometry on both sides is
+    # rejected before VSPAEROComputeGeometry.
     compgeom_name = 'VSPAEROComputeGeometry'
     vsp.SetAnalysisInputDefaults(compgeom_name)
     compgeom_inputs = set(vsp.GetAnalysisInputNames(compgeom_name))
-    set_analysis_input_if_available(vsp, compgeom_name, compgeom_inputs, vsp.SetIntAnalysisInput, 'GeomSet', [thick_set])
-    set_analysis_input_if_available(vsp, compgeom_name, compgeom_inputs, vsp.SetIntAnalysisInput, 'ThinGeomSet', [thin_set])
+    if 'GeomSet' not in compgeom_inputs:
+        add(
+            'errors',
+            'MISSING_GEOMSET_INPUT',
+            "VSPAEROComputeGeometry does not expose the 'GeomSet' input.",
+        )
+        result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
+        return result
 
-    vprint(1, ' Executing VSPAEROComputeGeometry...')
+    thick_set = int(vsp.GetIntAnalysisInput(compgeom_name, 'GeomSet')[0])
+    thin_set = (
+        int(vsp.GetIntAnalysisInput(compgeom_name, 'ThinGeomSet')[0])
+        if 'ThinGeomSet' in compgeom_inputs
+        else None
+    )
+    set_none = int(getattr(vsp, 'SET_NONE', -1))
+    if thick_set == set_none and (thin_set is None or thin_set == set_none):
+        add(
+            'errors',
+            'NO_AERO_GEOMETRY',
+            'The saved VSPAERO settings select no thick or thin geometry.',
+            {'GeomSet': thick_set, 'ThinGeomSet': thin_set},
+        )
+        result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
+        return result
+
+    result['vspaero_settings'].update({
+        'effective_geom_set': thick_set,
+        'effective_thin_geom_set': thin_set,
+    })
+
+    vprint(
+        1,
+        ' Executing VSPAEROComputeGeometry '
+        f'(GeomSet={thick_set}, ThinGeomSet={thin_set})...',
+    )
     compgeom_start = time.perf_counter()
     try:
         if vspaero_verbose:
@@ -1373,7 +1391,12 @@ def vsp_stability_derivatives(
             with suppress_stdout():
                 compgeom_result_id = vsp.ExecAnalysis(compgeom_name)
     except Exception as err:
-        add('errors', 'VSPAERO_COMPUTE_GEOMETRY_FAILED', 'VSPAEROComputeGeometry failed.', {'error': repr(err)})
+        add(
+            'errors',
+            'VSPAERO_COMPUTE_GEOMETRY_FAILED',
+            'VSPAEROComputeGeometry failed.',
+            {'error': repr(err)},
+        )
         result['timing']['compute_geometry_elapsed_s'] = time.perf_counter() - compgeom_start
         result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
         return result
@@ -1385,10 +1408,28 @@ def vsp_stability_derivatives(
     analysis_name = 'VSPAEROSweep'
     vsp.SetAnalysisInputDefaults(analysis_name)
     analysis_inputs = set(vsp.GetAnalysisInputNames(analysis_name))
-    set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput, 'GeomSet', [thick_set])
-    set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput, 'ThinGeomSet', [thin_set])
-    set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput, 'RefFlag', [1])
-    set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetStringAnalysisInput, 'RefGeomID', [wing_id])
+
+    # Keep VSPAEROSweep on the exact same saved thick/thin selection used to
+    # generate the VSPAERO geometry.  Reference dimensions and reference-wing
+    # choice are intentionally left at the model's saved values.
+    set_analysis_input_if_available(
+        vsp,
+        analysis_name,
+        analysis_inputs,
+        vsp.SetIntAnalysisInput,
+        'GeomSet',
+        [thick_set],
+    )
+    if thin_set is not None:
+        set_analysis_input_if_available(
+            vsp,
+            analysis_name,
+            analysis_inputs,
+            vsp.SetIntAnalysisInput,
+            'ThinGeomSet',
+            [thin_set],
+        )
+
     set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetDoubleAnalysisInput, 'AlphaStart', [alpha])
     set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetDoubleAnalysisInput, 'AlphaEnd', [alpha])
     set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput, 'AlphaNpts', [1])
@@ -1400,18 +1441,27 @@ def vsp_stability_derivatives(
     set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput, 'ReCrefNpts', [1])
 
     if 'UnsteadyType' in analysis_inputs:
-        vsp.SetIntAnalysisInput(analysis_name, 'UnsteadyType', [vsp.STABILITY_DEFAULT], 0)
+        vsp.SetIntAnalysisInput(analysis_name, 'UnsteadyType', [stability_type], 0)
     else:
-        add('errors', 'MISSING_UNSTEADYTYPE_INPUT', "VSPAEROSweep does not expose the 'UnsteadyType' input in this OpenVSP version.")
+        add(
+            'errors',
+            'MISSING_UNSTEADYTYPE_INPUT',
+            "VSPAEROSweep does not expose the 'UnsteadyType' input in this OpenVSP version.",
+        )
         result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
         return result
 
-    # Explicit speed/diagnostic settings. Each setting is only applied when the
-    # current OpenVSP build exposes the corresponding Analysis input.
     if ncpu is not None:
         if int(ncpu) < 1:
             add('errors', 'INVALID_NCPU', 'ncpu must be a positive integer.', {'ncpu': ncpu})
-        elif not set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput, 'NCPU', [int(ncpu)]):
+        elif not set_analysis_input_if_available(
+            vsp,
+            analysis_name,
+            analysis_inputs,
+            vsp.SetIntAnalysisInput,
+            'NCPU',
+            [int(ncpu)],
+        ):
             add('warnings', 'MISSING_NCPU_INPUT', "VSPAEROSweep does not expose the 'NCPU' input.")
 
     if wake_num_iter is not None:
@@ -1431,11 +1481,26 @@ def vsp_stability_derivatives(
             'WakeNumIter',
             [wake_num_iter],
         ):
+            add('warnings', 'MISSING_WAKE_NUM_ITER_INPUT', "VSPAEROSweep does not expose the 'WakeNumIter' input.")
+
+    if wake_num_nodes is not None:
+        wake_num_nodes = int(wake_num_nodes)
+        if wake_num_nodes < 0:
             add(
-                'warnings',
-                'MISSING_WAKE_NUM_ITER_INPUT',
-                "VSPAEROSweep does not expose the 'WakeNumIter' input.",
+                'errors',
+                'INVALID_WAKE_NUM_NODES',
+                'wake_num_nodes must be zero or greater.',
+                {'wake_num_nodes': wake_num_nodes},
             )
+        elif not set_analysis_input_if_available(
+            vsp,
+            analysis_name,
+            analysis_inputs,
+            vsp.SetIntAnalysisInput,
+            'NumWakeNodes',
+            [wake_num_nodes],
+        ):
+            add('warnings', 'MISSING_WAKE_NUM_NODES_INPUT', "VSPAEROSweep does not expose the 'NumWakeNodes' input.")
 
     if fixed_wake_flag is not None:
         if not set_analysis_input_if_available(
@@ -1446,12 +1511,39 @@ def vsp_stability_derivatives(
             'FixedWakeFlag',
             [1 if fixed_wake_flag else 0],
         ):
-            add(
-                'warnings',
-                'MISSING_FIXED_WAKE_FLAG_INPUT',
-                "VSPAEROSweep does not expose the 'FixedWakeFlag' input.",
-            )
+            add('warnings', 'MISSING_FIXED_WAKE_FLAG_INPUT', "VSPAEROSweep does not expose the 'FixedWakeFlag' input.")
 
+    if redirect_file is not None:
+        if not set_analysis_input_if_available(
+            vsp,
+            analysis_name,
+            analysis_inputs,
+            vsp.SetStringAnalysisInput,
+            'RedirectFile',
+            [str(redirect_file)],
+        ):
+            add('warnings', 'MISSING_REDIRECT_FILE_INPUT', "VSPAEROSweep does not expose the 'RedirectFile' input.")
+
+    if stop_before_run:
+        if not set_analysis_input_if_available(
+            vsp,
+            analysis_name,
+            analysis_inputs,
+            vsp.SetIntAnalysisInput,
+            'StopBeforeRun',
+            [1],
+        ):
+            add('warnings', 'MISSING_STOP_BEFORE_RUN_INPUT', "VSPAEROSweep does not expose the 'StopBeforeRun' input.")
+
+    if result['errors']:
+        result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
+        return result
+
+    effective_stability_type = int(vsp.GetIntAnalysisInput(analysis_name, 'UnsteadyType')[0])
+    effective_stability_name, effective_stab_file_suffix = stability_types.get(
+        effective_stability_type,
+        (f'UNKNOWN_{effective_stability_type}', ''),
+    )
     effective_ncpu = (
         int(vsp.GetIntAnalysisInput(analysis_name, 'NCPU')[0])
         if 'NCPU' in analysis_inputs
@@ -1462,18 +1554,38 @@ def vsp_stability_derivatives(
         if 'WakeNumIter' in analysis_inputs
         else None
     )
+    effective_wake_num_nodes = (
+        int(vsp.GetIntAnalysisInput(analysis_name, 'NumWakeNodes')[0])
+        if 'NumWakeNodes' in analysis_inputs
+        else None
+    )
     effective_fixed_wake_flag = (
         bool(vsp.GetIntAnalysisInput(analysis_name, 'FixedWakeFlag')[0])
         if 'FixedWakeFlag' in analysis_inputs
         else None
     )
-    result['vspaero_settings'].update(
-        {
-            'effective_ncpu': effective_ncpu,
-            'effective_wake_num_iter': effective_wake_num_iter,
-            'effective_fixed_wake_flag': effective_fixed_wake_flag,
-        }
+    effective_ref_flag = (
+        int(vsp.GetIntAnalysisInput(analysis_name, 'RefFlag')[0])
+        if 'RefFlag' in analysis_inputs
+        else None
     )
+    try:
+        effective_ref_geom_id = vsp.GetVSPAERORefWingID()
+    except Exception:
+        effective_ref_geom_id = ''
+
+    result['vspaero_settings'].update({
+        'effective_stability_type': effective_stability_type,
+        'effective_stability_name': effective_stability_name,
+        'effective_stab_file_suffix': effective_stab_file_suffix,
+        'effective_ncpu': effective_ncpu,
+        'effective_wake_num_iter': effective_wake_num_iter,
+        'effective_wake_num_nodes': effective_wake_num_nodes,
+        'effective_fixed_wake_flag': effective_fixed_wake_flag,
+        'effective_ref_flag': effective_ref_flag,
+        'effective_ref_geom_id': effective_ref_geom_id,
+    })
+
     if wake_num_iter is not None and effective_fixed_wake_flag:
         add(
             'warnings',
@@ -1482,22 +1594,13 @@ def vsp_stability_derivatives(
             'the fixed-wake setting takes precedence.',
         )
 
-    if redirect_file is not None:
-        if not set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetStringAnalysisInput, 'RedirectFile', [str(redirect_file)]):
-            add('warnings', 'MISSING_REDIRECT_FILE_INPUT', "VSPAEROSweep does not expose the 'RedirectFile' input.")
-
-    if stop_before_run:
-        if not set_analysis_input_if_available(vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput, 'StopBeforeRun', [1]):
-            add('warnings', 'MISSING_STOP_BEFORE_RUN_INPUT', "VSPAEROSweep does not expose the 'StopBeforeRun' input.")
-
-    if result['errors']:
-        result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
-        return result
-
     vprint(
         1,
-        'Executing VSPAEROSweep with STABILITY_DEFAULT'
-        # f' (NCPU={ncpu}, WakeNumIter={wake_num_iter}, RedirectFile={redirect_file!r})...',
+        f' Executing VSPAEROSweep with {stability_name} '
+        f'(NCPU={effective_ncpu}, '
+        f'WakeNumIter={effective_wake_num_iter}, '
+        f'NumWakeNodes={effective_wake_num_nodes}, '
+        f'FixedWakeFlag={effective_fixed_wake_flag})',
     )
 
     sweep_start = time.perf_counter()
@@ -1523,7 +1626,6 @@ def vsp_stability_derivatives(
         return result
 
     extraction_start = time.perf_counter()
-    child_result_ids = []
     try:
         child_result_ids = list(vsp.GetStringResults(wrapper_result_id, 'ResultsVec'))
     except Exception:
@@ -1543,7 +1645,12 @@ def vsp_stability_derivatives(
                 result['result_names'].append('VSPAERO_Stab')
 
     if not result['stab_result_id']:
-        add('errors', 'MISSING_VSPAERO_STAB', 'VSPAERO_Stab was not found after STABILITY_DEFAULT analysis.', {'result_names': result['result_names']})
+        add(
+            'errors',
+            'MISSING_VSPAERO_STAB',
+            f'VSPAERO_Stab was not found after {stability_name} analysis.',
+            {'result_names': result['result_names']},
+        )
         result['timing']['result_extraction_elapsed_s'] = time.perf_counter() - extraction_start
         result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
         return result
@@ -1560,7 +1667,11 @@ def vsp_stability_derivatives(
     if data:
         result['derivatives'] = pd.DataFrame(np.array(data).T, columns=columns)
     else:
-        add('errors', 'EMPTY_VSPAERO_STAB', 'VSPAERO_Stab was found, but no numeric derivative data was readable.')
+        add(
+            'errors',
+            'EMPTY_VSPAERO_STAB',
+            'VSPAERO_Stab was found, but no numeric derivative data was readable.',
+        )
         result['timing']['result_extraction_elapsed_s'] = time.perf_counter() - extraction_start
         result['timing']['total_elapsed_s'] = time.perf_counter() - total_start
         return result
@@ -1571,7 +1682,11 @@ def vsp_stability_derivatives(
 
     if verbose:
         status = 'PASSED' if result['passed'] else 'FAILED'
-        print(f' Stability derivative calculation {status}: {len(result["errors"])} error(s), {len(result["warnings"])} warning(s)')
+        print(
+            f' Stability derivative calculation {status}: '
+            f'{len(result["errors"])} error(s), '
+            f'{len(result["warnings"])} warning(s)'
+        )
         if int(verbose) >= 2:
             timing = result['timing']
             print(
@@ -1703,7 +1818,7 @@ def vsp_sweep_wig(
 
     # Read model information and resolve the existing elevator once.
     vsp.Update()
-    wing_id = find_one_geom(vsp, G103A_REF_GEOM_NAME)
+    wing_id = find_one_geom(vsp, DEFAULT_REF_GEOM_NAME)
     vsp3_path = vsp.GetVSPFileName()
     openvsp_version = vsp.GetVSPVersion()
 
@@ -2081,7 +2196,7 @@ def vsp_sweep_wig(
         print(f' OpenVSP       : {openvsp_version}', flush=True)
         print(f' VSP3          : {vsp3_path or "<unsaved model>"}', flush=True)
         print(
-            f' Reference wing: {G103A_REF_GEOM_NAME} ({wing_id})',
+            f' Reference wing: {DEFAULT_REF_GEOM_NAME} ({wing_id})',
             flush=True,
         )
         print(f' Geometry sets : {set_source}', flush=True)
@@ -2321,39 +2436,22 @@ def vsp_sweep_wig(
     )
 
 def validate_vsp3_for_stability_derivatives(vsp3_path, *, verbose=1):
-    """
-    Validate whether a G103A-style .vsp3 model is structurally ready for
-    VSPAERO stability-derivative calculation.
+    """Validate saved VSPAERO settings for stability-derivative analysis.
 
-    This is a static preflight check. It reads the .vsp3 file and validates
-    geometry names, subsurfaces, thick/thin sets, VSPAERO symmetry,
-    control-surface groups, gains, reference values, and moment-reference
-    coordinates.
+    The check is intentionally model-agnostic.  It does not require specific
+    Geom names, Set names, Subsurface names, or control-surface groups.  The
+    model's saved ``GeomSet`` and ``ThinGeomSet`` selections are treated as the
+    aerodynamic model definition, including valid all-thin or all-thick cases.
 
-    It does not run VSPAEROComputeGeometry, VSPAEROSweep, STABILITY_DEFAULT,
-    or parse .stab output.
-
-    Parameters
-    ----------
-    vsp3_path : str or os.PathLike
-        Path to the .vsp3 file to read.
-    verbose : int or bool, optional
-        0: no stdout, 1: major progress, 2: detailed validation summary.
-
-    Returns
-    -------
-    dict
-        Validation report with passed/errors/warnings/infos and summaries.
+    The function reads the ``.vsp3`` file but does not execute VSPAERO.
     """
     report = {
         'passed': False,
         'errors': [],
         'warnings': [],
         'infos': [],
-        'geom_summary': {},
-        'subsurface_summary': {},
-        'symmetry_summary': {},
         'set_summary': {},
+        'symmetry_summary': {},
         'control_group_summary': {},
         'vspaero_settings_summary': {},
     }
@@ -2369,9 +2467,6 @@ def validate_vsp3_for_stability_derivatives(vsp3_path, *, verbose=1):
         if verbose and int(verbose) >= level:
             print(message)
 
-    def normalize_type_name(type_name):
-        return str(type_name).strip().upper()
-
     def is_finite_number(value):
         try:
             return np.isfinite(float(value))
@@ -2380,325 +2475,232 @@ def validate_vsp3_for_stability_derivatives(vsp3_path, *, verbose=1):
 
     vsp3_path = os.fspath(vsp3_path)
     if not os.path.isfile(vsp3_path):
-        add('errors', 'FILE_NOT_FOUND', 'The specified .vsp3 file was not found.', {'vsp3_path': vsp3_path})
+        add(
+            'errors',
+            'FILE_NOT_FOUND',
+            'The specified .vsp3 file was not found.',
+            {'vsp3_path': vsp3_path},
+        )
         return report
 
-    vprint(1, f'\n-> Validate G103A stability-derivative preflight: {vsp3_path}')
+    vprint(1, f'\n-> Validate VSPAERO stability-derivative preflight: {vsp3_path}')
 
-    # Read the model into a clean OpenVSP session. This function intentionally
-    # validates the file as a standalone model, not as an insert into the
-    # currently loaded vehicle.
     try:
         vsp.ClearVSPModel()
         vsp.Update()
         vsp.ReadVSPFile(vsp3_path)
         vsp.Update()
     except Exception as err:
-        add('errors', 'READ_VSP3_FAILED', 'OpenVSP failed to read the .vsp3 file.', {'error': repr(err)})
+        add(
+            'errors',
+            'READ_VSP3_FAILED',
+            'OpenVSP failed to read the .vsp3 file.',
+            {'error': repr(err)},
+        )
         return report
 
     add('infos', 'READ_VSP3_OK', 'The .vsp3 file was read by OpenVSP.', {'vsp3_path': vsp3_path})
 
-    # 1. Required Geoms.
-    geom_ids = {}
+    # Read the same saved geometry selection that VSPAEROComputeGeometry will
+    # use.  Set names are deliberately irrelevant here.
+    vprint(1, ' Checking saved VSPAERO geometry selection...')
+    compgeom_name = 'VSPAEROComputeGeometry'
+    try:
+        vsp.SetAnalysisInputDefaults(compgeom_name)
+        compgeom_inputs = set(vsp.GetAnalysisInputNames(compgeom_name))
+    except Exception as err:
+        add(
+            'errors',
+            'VSPAERO_COMPUTE_GEOMETRY_INPUTS_FAILED',
+            'Could not read VSPAEROComputeGeometry inputs.',
+            {'error': repr(err)},
+        )
+        return report
 
-    vprint(1, ' Checking required Geoms...')
-    for geom_name, expected_type in G103A_EXPECTED_GEOMS.items():
-        ids = list(vsp.FindGeomsWithName(geom_name))
+    if 'GeomSet' not in compgeom_inputs:
+        add(
+            'errors',
+            'MISSING_GEOMSET_INPUT',
+            "VSPAEROComputeGeometry does not expose the 'GeomSet' input.",
+        )
+        return report
+
+    thick_set = int(vsp.GetIntAnalysisInput(compgeom_name, 'GeomSet')[0])
+    thin_set = (
+        int(vsp.GetIntAnalysisInput(compgeom_name, 'ThinGeomSet')[0])
+        if 'ThinGeomSet' in compgeom_inputs
+        else None
+    )
+    set_none = int(getattr(vsp, 'SET_NONE', -1))
+
+    selected_geom_ids = set()
+    for label, set_index in (('GeomSet', thick_set), ('ThinGeomSet', thin_set)):
         summary = {
-            'found': bool(ids),
-            'geom_ids': ids,
-            'geom_id': ids[0] if len(ids) == 1 else None,
-            'type_name': None,
-            'expected_type': expected_type,
-            'passed': False,
-        }
-
-        if len(ids) == 0:
-            add('errors', 'MISSING_GEOM', f"Required Geom '{geom_name}' was not found.", {'geom_name': geom_name})
-        elif len(ids) > 1:
-            add(
-                'errors',
-                'DUPLICATE_GEOM',
-                f"Required Geom '{geom_name}' is ambiguous because multiple Geoms have the same name.",
-                {'geom_name': geom_name, 'geom_ids': ids},
-            )
-        else:
-            geom_id = ids[0]
-            geom_ids[geom_name] = geom_id
-            type_name = normalize_type_name(vsp.GetGeomTypeName(geom_id))
-            summary['type_name'] = type_name
-            summary['passed'] = type_name == expected_type
-            if type_name != expected_type:
-                add(
-                    'errors',
-                    'GEOM_TYPE_MISMATCH',
-                    f"Geom '{geom_name}' has type '{type_name}', expected '{expected_type}'.",
-                    {'geom_name': geom_name, 'geom_id': geom_id},
-                )
-        report['geom_summary'][geom_name] = summary
-
-    # 2. Required control-surface Subsurfaces.
-    subsurface_ids = {}
-
-    vprint(1, ' Checking required control-surface Subsurfaces...')
-    expected_control_type = int(getattr(vsp, 'SS_CONTROL', 3))
-    for geom_name, subsurface_name in G103A_EXPECTED_SUBSURFACES.items():
-        summary = {
-            'found': False,
-            'geom_name': geom_name,
-            'subsurface_name': subsurface_name,
-            'subsurface_id': None,
-            'subsurface_type': None,
-            'expected_type': 'SS_CONTROL',
-            'passed': False,
-        }
-
-        geom_id = geom_ids.get(geom_name)
-        if not geom_id:
-            add(
-                'errors',
-                'SUBSURFACE_PARENT_MISSING',
-                f"Cannot check Subsurface '{subsurface_name}' because parent Geom '{geom_name}' is missing.",
-                {'geom_name': geom_name},
-            )
-            report['subsurface_summary'][geom_name] = summary
-            continue
-
-        sub_ids = list(vsp.GetSubSurfIDVec(geom_id))
-        matches = [sid for sid in sub_ids if vsp.GetSubSurfName(sid) == subsurface_name]
-        if len(matches) == 0:
-            add(
-                'errors',
-                'MISSING_SUBSURFACE',
-                f"Required Subsurface '{subsurface_name}' was not found on '{geom_name}'.",
-                {'geom_name': geom_name, 'available_subsurfaces': [vsp.GetSubSurfName(sid) for sid in sub_ids]},
-            )
-        elif len(matches) > 1:
-            add(
-                'errors',
-                'DUPLICATE_SUBSURFACE',
-                f"Subsurface '{subsurface_name}' appears multiple times on '{geom_name}'.",
-                {'geom_name': geom_name, 'subsurface_ids': matches},
-            )
-        else:
-            subsurface_id = matches[0]
-            subsurface_type = int(vsp.GetSubSurfType(subsurface_id))
-            subsurface_ids[(geom_name, subsurface_name)] = subsurface_id
-            summary.update({
-                'found': True,
-                'subsurface_id': subsurface_id,
-                'subsurface_type': subsurface_type,
-                'passed': subsurface_type == expected_control_type,
-            })
-            if subsurface_type != expected_control_type:
-                add(
-                    'errors',
-                    'SUBSURFACE_TYPE_MISMATCH',
-                    f"Subsurface '{subsurface_name}' on '{geom_name}' is not SS_CONTROL.",
-                    {'geom_name': geom_name, 'subsurface_id': subsurface_id, 'subsurface_type': subsurface_type},
-                )
-        report['subsurface_summary'][geom_name] = summary
-
-    # 4. ThickGeom / ThinGeom sets.
-    vprint(1, ' Checking ThickGeom / ThinGeom sets...')
-    for set_name, expected_geom_names in G103A_EXPECTED_SETS.items():
-        expected_names = set(expected_geom_names)
-        summary = {
-            'found': False,
-            'set_name': set_name,
-            'set_index': None,
-            'expected_geom_names': expected_geom_names,
-            'actual_geom_names': [],
-            'missing_geom_names': [],
-            'unexpected_geom_names': [],
-            'passed': False,
-        }
-
-        try:
-            set_index = int(vsp.GetSetIndex(set_name))
-        except Exception:
-            set_index = -1
-
-        if set_index < 0:
-            add('errors', 'MISSING_SET', f"Required set '{set_name}' was not found.", {'set_name': set_name})
-            report['set_summary'][set_name] = summary
-            continue
-
-        try:
-            set_geom_ids = list(vsp.GetGeomSet(set_name))
-        except Exception:
-            set_geom_ids = list(vsp.GetGeomSetAtIndex(set_index))
-
-        actual_names = [vsp.GetGeomName(gid) for gid in set_geom_ids]
-        actual_name_set = set(actual_names)
-        missing = sorted(expected_names - actual_name_set)
-        unexpected = sorted(actual_name_set - expected_names)
-
-        summary.update({
-            'found': True,
             'set_index': set_index,
-            'actual_geom_names': actual_names,
-            'missing_geom_names': missing,
-            'unexpected_geom_names': unexpected,
-            'passed': not missing and not unexpected,
-        })
+            'selected': set_index is not None and set_index != set_none,
+            'geom_ids': [],
+            'geom_names': [],
+        }
+        if summary['selected']:
+            try:
+                geom_ids = list(vsp.GetGeomSetAtIndex(int(set_index)))
+            except Exception as err:
+                add(
+                    'errors',
+                    'GEOM_SET_READ_FAILED',
+                    f'Could not read the selected {label}.',
+                    {'set_index': set_index, 'error': repr(err)},
+                )
+                geom_ids = []
+            summary['geom_ids'] = geom_ids
+            summary['geom_names'] = [vsp.GetGeomName(geom_id) for geom_id in geom_ids]
+            selected_geom_ids.update(geom_ids)
+        report['set_summary'][label] = summary
 
-        if missing:
-            add('errors', 'SET_MISSING_GEOM', f"Set '{set_name}' is missing required Geoms.", {'set_name': set_name, 'missing_geom_names': missing})
-        if unexpected:
-            add('errors', 'SET_HAS_UNEXPECTED_GEOM', f"Set '{set_name}' contains unexpected Geoms.", {'set_name': set_name, 'unexpected_geom_names': unexpected})
+    if not selected_geom_ids:
+        add(
+            'errors',
+            'NO_AERO_GEOMETRY',
+            'The saved VSPAERO geometry selection contains no Geoms.',
+            {'GeomSet': thick_set, 'ThinGeomSet': thin_set},
+        )
+    elif not report['set_summary']['GeomSet']['geom_ids']:
+        add(
+            'infos',
+            'NO_THICK_GEOMETRY',
+            'No thick geometry is selected; the stability analysis will use the selected thin geometry only.',
+        )
 
-        report['set_summary'][set_name] = summary
-
-    # 5. VSPAERO settings container, reference values, and set indices.
-    vprint(1, ' Checking VSPAERO settings...')
-    vspaero_settings_id = vsp.FindContainer('VSPAEROSettings', 0)
+    # Validate only the reference quantities and symmetry state required by the
+    # stability calculation.  The actual geometry/control naming is not part of
+    # analysis readiness.
+    vprint(1, ' Checking VSPAERO reference settings...')
+    settings_id = vsp.FindContainer('VSPAEROSettings', 0)
     settings_summary = {
-        'container_id': vspaero_settings_id,
+        'container_id': settings_id,
         'Sref': None,
         'bref': None,
         'cref': None,
         'Xcg': None,
         'Ycg': None,
         'Zcg': None,
-        'GeomSet': None,
-        'ThinGeomSet': None,
+        'RefFlag': None,
+        'RefGeomID': '',
+        'GeomSet': thick_set,
+        'ThinGeomSet': thin_set,
         'Symmetry': None,
-        'expected_GeomSet': report['set_summary'].get('ThickGeom', {}).get('set_index'),
-        'expected_ThinGeomSet': report['set_summary'].get('ThinGeom', {}).get('set_index'),
-        'passed': False,
     }
 
-    symmetry_summary = {
-        'source': 'VSPAEROSettings',
-        'container_id': vspaero_settings_id,
-        'parm_name': 'Symmetry',
-        'parm_id': '',
-        'value': None,
-        'expected_value': 0.0,
-        'passed': False,
-    }
-
-    if not vspaero_settings_id:
+    if not settings_id:
         add('errors', 'MISSING_VSPAERO_SETTINGS', "The 'VSPAEROSettings' container was not found.")
     else:
-        for parm_name in ['Sref', 'bref', 'cref', 'Xcg', 'Ycg', 'Zcg', 'GeomSet', 'ThinGeomSet']:
-            value, parm_id = get_container_parm_value(vsp, vspaero_settings_id, parm_name)
+        for parm_name in ('Sref', 'bref', 'cref', 'Xcg', 'Ycg', 'Zcg', 'RefFlag', 'Symmetry'):
+            value, parm_id = get_container_parm_value(vsp, settings_id, parm_name)
             settings_summary[parm_name] = value
-            if value is None:
-                add('errors', 'MISSING_VSPAERO_PARM', f"VSPAERO setting '{parm_name}' was not found.", {'parm_name': parm_name})
+            if parm_id == '':
+                add(
+                    'errors',
+                    'MISSING_VSPAERO_PARM',
+                    f"VSPAERO setting '{parm_name}' was not found.",
+                    {'parm_name': parm_name},
+                )
 
-        symmetry_value, symmetry_parm_id = get_container_parm_value(vsp, vspaero_settings_id, 'Symmetry')
-        symmetry_summary['parm_id'] = symmetry_parm_id
-        symmetry_summary['value'] = symmetry_value
-        settings_summary['Symmetry'] = symmetry_value
-        if symmetry_parm_id == '':
-            add('errors', 'MISSING_VSPAERO_SYMMETRY', "VSPAERO setting 'Symmetry' was not found.", {'parm_name': 'Symmetry'})
-        elif int(round(symmetry_value)) != 0:
-            add('errors', 'VSPAERO_XZ_SYMMETRY_ENABLED', 'VSPAERO Settings Symmetry must be 0 for stability-derivative calculation.', symmetry_summary)
-        else:
-            symmetry_summary['passed'] = True
-
-        for parm_name in ['Sref', 'bref', 'cref']:
+        for parm_name in ('Sref', 'bref', 'cref'):
             value = settings_summary[parm_name]
-            if value is not None and (not is_finite_number(value) or float(value) <= 0):
-                add('errors', 'INVALID_REFERENCE_VALUE', f"VSPAERO reference value '{parm_name}' must be positive and finite.", {'parm_name': parm_name, 'value': value})
-        for parm_name in ['Xcg', 'Ycg', 'Zcg']:
+            if value is not None and (not is_finite_number(value) or float(value) <= 0.0):
+                add(
+                    'errors',
+                    'INVALID_REFERENCE_VALUE',
+                    f"VSPAERO reference value '{parm_name}' must be positive and finite.",
+                    {'parm_name': parm_name, 'value': value},
+                )
+
+        for parm_name in ('Xcg', 'Ycg', 'Zcg'):
             value = settings_summary[parm_name]
             if value is not None and not is_finite_number(value):
-                add('errors', 'INVALID_MOMENT_REFERENCE', f"VSPAERO moment reference '{parm_name}' must be finite.", {'parm_name': parm_name, 'value': value})
+                add(
+                    'errors',
+                    'INVALID_MOMENT_REFERENCE',
+                    f"VSPAERO moment reference '{parm_name}' must be finite.",
+                    {'parm_name': parm_name, 'value': value},
+                )
 
-        if settings_summary['GeomSet'] is not None and settings_summary['expected_GeomSet'] is not None:
-            if int(round(settings_summary['GeomSet'])) != int(settings_summary['expected_GeomSet']):
-                add('errors', 'VSPAERO_GEOMSET_MISMATCH', "VSPAERO GeomSet is not the 'ThickGeom' set.", settings_summary)
-        if settings_summary['ThinGeomSet'] is not None and settings_summary['expected_ThinGeomSet'] is not None:
-            if int(round(settings_summary['ThinGeomSet'])) != int(settings_summary['expected_ThinGeomSet']):
-                add('errors', 'VSPAERO_THINGEOMSET_MISMATCH', "VSPAERO ThinGeomSet is not the 'ThinGeom' set.", settings_summary)
-
-    report['symmetry_summary'] = symmetry_summary
-    report['vspaero_settings_summary'] = settings_summary
-
-    # 6. VSPAERO control-surface groups and gains.
-    vprint(1, ' Checking VSPAERO control-surface groups and gains...')
-    try:
-        control_group_names = [vsp.GetVSPAEROControlGroupName(i) for i in range(vsp.GetNumControlSurfaceGroups())]
-    except Exception as err:
-        control_group_names = []
-        add('errors', 'CONTROL_GROUP_LIST_FAILED', 'Failed to read VSPAERO control-surface groups.', {'error': repr(err)})
-
-    for group_name, expected in G103A_EXPECTED_CONTROL_GROUPS.items():
-        geom_name = expected['geom_name']
-        subsurface_name = expected['subsurface_name']
-        expected_gains = expected['expected_gains']
-        summary = {
-            'found': group_name in control_group_names,
-            'group_name': group_name,
-            'group_index': None,
-            'geom_name': geom_name,
-            'subsurface_name': subsurface_name,
-            'active_control_surfaces': [],
-            'expected_gains': expected_gains,
-            'actual_gains': [],
-            'passed': False,
-        }
-
-        if group_name not in control_group_names:
-            add('errors', 'MISSING_CONTROL_GROUP', f"Required control-surface group '{group_name}' was not found.", {'available_groups': control_group_names})
-            report['control_group_summary'][group_name] = summary
-            continue
-
-        group_index = control_group_names.index(group_name)
-        summary['group_index'] = group_index
-        active_names = list(vsp.GetActiveCSNameVec(group_index))
-        summary['active_control_surfaces'] = active_names
-        if not active_names:
-            add('errors', 'CONTROL_GROUP_INACTIVE', f"Control-surface group '{group_name}' has no active control surfaces.", {'group_name': group_name})
-        elif not any(geom_name in name and subsurface_name in name for name in active_names):
+        symmetry_value = settings_summary['Symmetry']
+        if symmetry_value is not None and int(round(float(symmetry_value))) != 0:
             add(
-                'warnings',
-                'CONTROL_GROUP_ACTIVE_NAME_UNCLEAR',
-                f"Control-surface group '{group_name}' is active, but its active names do not clearly include both the expected Geom and Subsurface names.",
-                {'group_name': group_name, 'active_control_surfaces': active_names},
+                'errors',
+                'VSPAERO_XZ_SYMMETRY_ENABLED',
+                'VSPAERO Settings Symmetry must be 0 for full stability-derivative calculation.',
+                {'Symmetry': symmetry_value},
             )
 
-        subsurface_id = subsurface_ids.get((geom_name, subsurface_name))
-        if vspaero_settings_id and subsurface_id:
-            for gain_index, expected_gain in enumerate(expected_gains):
-                parm_name = f'Surf_{subsurface_id}_{gain_index}_Gain'
-                value, parm_id = get_container_parm_value(vsp, vspaero_settings_id, parm_name)
-                summary['actual_gains'].append(value)
-                if value is None:
-                    add('errors', 'MISSING_CONTROL_GAIN', f"Gain parm '{parm_name}' was not found for group '{group_name}'.", {'group_name': group_name, 'parm_name': parm_name})
-                elif abs(float(value) - float(expected_gain)) > 1e-6:
-                    add(
-                        'errors',
-                        'CONTROL_GAIN_MISMATCH',
-                        f"Control-surface group '{group_name}' has unexpected gain.",
-                        {'group_name': group_name, 'parm_name': parm_name, 'expected_gain': expected_gain, 'actual_gain': value},
-                    )
-        summary['passed'] = (
-            summary['found']
-            and bool(summary['active_control_surfaces'])
-            and len(summary['actual_gains']) == len(expected_gains)
-            and all(value is not None and abs(float(value) - float(expected)) <= 1e-6 for value, expected in zip(summary['actual_gains'], expected_gains))
-        )
-        report['control_group_summary'][group_name] = summary
+        try:
+            ref_geom_id = vsp.GetVSPAERORefWingID()
+        except Exception:
+            ref_geom_id = ''
+        settings_summary['RefGeomID'] = ref_geom_id
 
-    settings_summary['passed'] = not any(
-        item['code'].startswith('VSPAERO_') or item['code'].startswith('INVALID_') or item['code'].startswith('MISSING_VSPAERO_')
-        for item in report['errors']
-    )
+        component_ref = int(getattr(vsp, 'COMPONENT_REF', 1))
+        ref_flag = settings_summary['RefFlag']
+        if ref_flag is not None and int(round(float(ref_flag))) == component_ref:
+            if not ref_geom_id or str(ref_geom_id).upper() == 'NONE':
+                add(
+                    'errors',
+                    'MISSING_REFERENCE_GEOM',
+                    'VSPAERO uses component reference dimensions, but no reference wing is selected.',
+                )
+
+    report['symmetry_summary'] = {
+        'value': settings_summary['Symmetry'],
+        'expected_value': 0.0,
+        'passed': (
+            settings_summary['Symmetry'] is not None
+            and int(round(float(settings_summary['Symmetry']))) == 0
+        ),
+    }
+    report['vspaero_settings_summary'] = settings_summary
+
+    # Control groups are optional for stability derivatives.  Record what is
+    # present without turning missing aileron/elevator/rudder conventions into
+    # analysis errors.
+    vprint(1, ' Checking optional VSPAERO control-surface groups...')
+    try:
+        for group_index in range(vsp.GetNumControlSurfaceGroups()):
+            group_name = vsp.GetVSPAEROControlGroupName(group_index)
+            report['control_group_summary'][group_name] = {
+                'group_index': group_index,
+                'active_control_surfaces': list(vsp.GetActiveCSNameVec(group_index)),
+            }
+    except Exception as err:
+        add(
+            'warnings',
+            'CONTROL_GROUP_LIST_FAILED',
+            'Could not read VSPAERO control-surface groups.',
+            {'error': repr(err)},
+        )
+
     report['passed'] = len(report['errors']) == 0
 
     if verbose:
         status = 'PASSED' if report['passed'] else 'FAILED'
-        print(f' Validation {status}: {len(report["errors"])} error(s), {len(report["warnings"])} warning(s)')
+        print(
+            f' Validation {status}: {len(report["errors"])} error(s), '
+            f'{len(report["warnings"])} warning(s)'
+        )
         if int(verbose) >= 2:
+            print(
+                '    Geometry selection: '
+                f'GeomSet={thick_set} '
+                f'({len(report["set_summary"]["GeomSet"]["geom_ids"])} Geom(s)), '
+                f'ThinGeomSet={thin_set} '
+                f'({len(report["set_summary"]["ThinGeomSet"]["geom_ids"])} Geom(s))'
+            )
             for error in report['errors']:
                 print(f"    ERROR {error['code']}: {error['message']}")
             for warning in report['warnings']:
                 print(f"    WARNING {warning['code']}: {warning['message']}")
+            for info in report['infos']:
+                print(f"    INFO {info['code']}: {info['message']}")
 
     return report
 

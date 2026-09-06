@@ -22,10 +22,7 @@ BASE_AERO_COLUMNS = [
 STABILITY_CASE_NAMES = {
     "Base_Aero", "Alpha", "Beta", "Roll__Rate", "Pitch_Rate", "Yaw___Rate", "Mach",
 }
-FALLBACK_DERIVATIVE_COLUMNS = [
-    "Alpha", "Beta", "p", "q", "r", "Mach", "U",
-    "ConGrp_1", "ConGrp_2", "ConGrp_3",
-]
+BASE_DERIVATIVE_COLUMNS = ["Alpha", "Beta", "p", "q", "r", "Mach", "U"]
 CONTROL_NAME_HINTS = {
     "delta_a": "AILERON",
     "delta_e": "ELEVATOR",
@@ -137,7 +134,12 @@ def read_vspaero_stab(stab_path: str | os.PathLike) -> VSPAEROStab:
             else:
                 control_group_names.append(parts[0])
 
-        if stripped.startswith("Coef") and "Alpha" in line and "ConGrp_1" in line:
+        if (
+            len(parts) >= 9
+            and parts[0] == "Coef"
+            and parts[1] == "Total"
+            and parts[2:9] == BASE_DERIVATIVE_COLUMNS
+        ):
             derivative_header_index = index
             break
 
@@ -147,7 +149,7 @@ def read_vspaero_stab(stab_path: str | os.PathLike) -> VSPAEROStab:
         raise ValueError("Derivative table was not found in the .stab file.")
 
     header_parts = lines[derivative_header_index].split()
-    derivative_column_names = header_parts[2:] or FALLBACK_DERIVATIVE_COLUMNS
+    derivative_column_names = header_parts[2:]
     derivative_rows = []
     derivative_start = derivative_header_index + 4
     for line in lines[derivative_start:]:
