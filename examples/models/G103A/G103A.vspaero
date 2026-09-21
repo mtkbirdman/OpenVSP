@@ -21,7 +21,7 @@ ImplicitWake = 0
 ImplicitWakeStartIteration = 0 
 FarDist = -1 
 NumWakeNodes = 32 
-WakeIters = 12 
+WakeIters = 0 
 WakeRelax = 1 
 ForwardGMRESConvergenceFactor = 1 
 AdjointGMRESConvergenceFactor = 1 
@@ -32,20 +32,8 @@ UpdateMatrixPreconditioner = 0
 UseWakeNodeMatrixPreconditioner = 0 
 Write2DFEMFile = 0 
 WriteTecplotFile = 0 
-NumberOfControlGroups = 3 
-AILERON_GROUP
-WingGeom_Surf0_AILERON,WingGeom_Surf1_AILERON
-1, 1
-0
-ELEVATOR_GROUP
-HTailGeom_Surf0_ELEVATOR,HTailGeom_Surf1_ELEVATOR
-1, -1
-0
-RUDDER_GROUP
-VTailGeom_Surf0_RUDDER
--1
-0
+NumberOfControlGroups = 0 
 NumberofSurveyPoints = 0 
 NumberOfInlets = 0 
 NumberOfNozzles = 0 
-VSP_StabilityType = 1 
+VSP_StabilityType = 0 

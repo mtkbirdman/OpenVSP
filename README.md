@@ -48,6 +48,7 @@ OpenVSP model (.vsp3)
 - 垂直尾翼容積比 `Vv` と翼端たわみ量を変化させた VSPAERO stability sweep
 - `Vv–Gamma_eff` 設計チャートの後処理・描画
 - wake iteration / wake node 数の収束確認
+- VSPAERO `.adb` / `.vspgeom` を用いたパネル品質・`Cp` spike 診断
 
 ## 必要な環境
 
@@ -144,6 +145,7 @@ examples/scripts/test_turn_trim.py
 | `vv_gamma_chart/plot_vv_gamma_chart.ipynb` | `Vv–Gamma_eff` chart の後処理・描画 |
 | `wake_convergence/run_wake_convergence.ipynb` | WakeNumIter / NumWakeNodes の収束計算 |
 | `wake_convergence/plot_wake_convergence.ipynb` | wake convergence 結果の可視化 |
+| `mesh_quality/example_mesh_quality.ipynb` | `.adb` / `.vspgeom` のパネル品質・`Cp` spike 診断 |
 
 Notebook は、基本的にリポジトリ内の `src/` と `examples/models/` を利用する構成です。
 
@@ -196,6 +198,12 @@ VSPAERO `.stab` ファイルの読み取りを担当します。
 - Control Surface Group と `ConGrp_*` の対応
 
 を共通形式へ変換し、定常旋回 solver、6DoF simulation、設計チャートから共通利用します。
+
+### `src/VSPAEROMeshQuality.py`
+
+OpenVSP 3.51.3 / VSPAERO の `.adb` v3 を読み、surface triangle の幾何品質と `Cp` を同じ ID 上で診断します。`.vspgeom v3` がある場合は alternate triangulation を original NGon に対応付け、NGon 単位の局所 `Cp` 外れ値も確認できます。
+
+主な公開関数は `analyze_vspaero_mesh_quality()` です。
 
 ### `src/TrimTurnSolver.py`
 
