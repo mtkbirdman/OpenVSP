@@ -187,6 +187,9 @@ cython_debug/
 6dof_histories
 vv_gamma_chart_csv
 
+results
+results.*
+
 VSPU Tutorial Models
 99_old
 work

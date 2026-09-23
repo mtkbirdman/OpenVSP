@@ -1,10 +1,10 @@
 """
-VSPAEROMeshQuality.py -- v4
+VSPAEROMeshQuality.py -- v5
 
 OpenVSP / VSPAERO の surface mesh, Cp, Kutta / wake topology と、
 .history / .polar / .lod に保存された solution-level diagnostics を同じレポートに整理する。
 
-v4 の設計方針
+v5 の設計方針
 ----------------
 1. ADB の surface triangle と Cp を authoritative geometry / pressure source とする。
 2. VSPGeom の original NGon, alternate triangulation, UV, Kutta lists を対応付ける。
@@ -12,8 +12,8 @@ v4 の設計方針
 4. .history / .polar / .lod は solution-level verification の補助情報として読む。
 5. surface-derived force と wake-derived force の不一致は advisory とし、それだけで FAIL にしない。
 6. LOD の極端値や左右非対称も heuristic advisory とし、閾値は設定可能にする。
-7. <=15 deg の child-triangle small-angle 件数は backward-compatible advisory として残し、
-   severe mesh warning は極端な角度 / area transition / Cp anomaly の組み合わせで別集計する。
+7. <=15 deg の child-triangle small-angle 件数は advisory として残し、severe mesh warning は
+   極端な角度 / area transition / Cp anomaly の組み合わせで別集計する。
 8. mixed thick/thin では cross-surface junction 自体は正常に存在し得るため、件数だけで FAIL にしない。
 9. mapping failure, same-surface non-manifold, incomplete Kutta coverage は structural failure として扱う。
 10. Rotor / nozzle を含む ADB は、未対応データを黙って誤読せず明示的に停止する。
@@ -27,7 +27,7 @@ OpenVSP/OpenVSP tag OpenVSP_3.51.3
   src/geom_core/MeshGeom.cpp
   src/geom_core/TMesh.cpp
 
-v4 は OpenVSP の validity criterion を新たに定義するものではない。
+v5 は OpenVSP の validity criterion を新たに定義するものではない。
 出力される threshold-based flags は verification を進めるための diagnostic / advisory である。
 """
 
@@ -42,18 +42,49 @@ import re
 import struct
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from statistics import median
-from typing import Iterable
 
 import numpy as np
 
-MESH_QUALITY_TOOL_VERSION = 4
+MESH_QUALITY_TOOL_VERSION = 5
 OPENVSP_REFERENCE_VERSION = "3.51.3"
 ADB_MAGIC_V2 = -123789456
 ADB_MAGIC_V3 = ADB_MAGIC_V2 + 3
 WAKE_EDGE_TOLERANCE = 1.0e-12
 DEFAULT_TE_PARAM_NEAR_MISS_BAND = 1.0e-3
+
+@dataclass(frozen=True)
+class MeshQualitySettings:
+    """Diagnostic thresholds.
+
+    These values are reporting thresholds, not OpenVSP validity limits.
+    Keeping them in one object makes the analysis call readable and keeps the
+    summary self-describing without spreading two dozen keyword arguments
+    across every caller.
+    """
+
+    normal_angle_limit_deg: float = 30.0
+    spike_z_threshold: float = -6.0
+    spike_delta_threshold: float = -1.0
+    cp_floor_tolerance: float = 1e-6
+    cp_floor_min_cells: int = 4
+    cp_floor_max_cp: float = -2.0
+    small_angle_advisory_deg: float = 15.0
+    extreme_angle_deg: float = 0.1
+    extreme_area_ratio: float = 1000.0
+    extreme_edge_ratio: float = 100.0
+    kutta_coverage_min: float = 0.98
+    kutta_symmetry_tolerance_fraction: float = 0.02
+    te_param_near_miss_band: float = DEFAULT_TE_PARAM_NEAR_MISS_BAND
+    lod_cl_abs_warning: float = 3.0
+    lod_cmy_abs_warning: float = 10.0
+    lod_symmetry_relative_warning: float = 0.10
+    lod_symmetry_absolute_cl_warning: float = 1.0e-3
+    surface_wake_cl_relative_warning: float = 0.10
+    beta_zero_side_force_abs_warning: float = 0.01
+    uv_axis_tolerance: float = 1.0e-10
 
 class BinaryReader:
     """Small binary helper. ADB uses 32-bit int/float and 64-bit double."""
@@ -83,6 +114,8 @@ class BinaryReader:
         if len(raw) != n:
             raise EOFError(f"Unexpected EOF at byte {self.fp.tell() - len(raw)}")
         return raw
+
+# ADB / VSPGeom input ---------------------------------------------------------
 
 def _sha256(path: str | Path | None) -> str | None:
     if path is None:
@@ -411,7 +444,6 @@ def read_vspgeom_v3(path: str | Path) -> dict:
         node_ids = [next_int() for _ in range(n)]
         ngons.append({"ngon_id": ngon_id, "node_ids": node_ids, "n_vertices": n})
 
-    node_surface_uv = defaultdict(lambda: defaultdict(list))
     for ngon in ngons:
         surface_id = next_int()
         subsurface_id = next_int()
@@ -420,7 +452,6 @@ def read_vspgeom_v3(path: str | Path) -> dict:
             u = next_float()
             w = next_float()
             uvs.append((u, w))
-            node_surface_uv[surface_id][node_id].append((u, w))
         ngon["vspgeom_surface_id"] = surface_id
         ngon["vspgeom_subsurface_id"] = subsurface_id
         ngon["uvs"] = uvs
@@ -470,7 +501,6 @@ def read_vspgeom_v3(path: str | Path) -> dict:
         "nodes": nodes,
         "ngons": ngons,
         "kutta_lists": kutta_lists,
-        "node_surface_uv": node_surface_uv,
         "child_to_parent": child_to_parent,
         "triangle_connectivity": triangle_connectivity,
         "num_alternate_triangles": child_triangle_id,
@@ -516,6 +546,8 @@ def _triangle_geometry(node_ids: tuple[int, int, int], nodes: np.ndarray) -> dic
         "normal_y": float(normal[1]),
         "normal_z": float(normal[2]),
     }
+
+# Mesh / Cp diagnostics -------------------------------------------------------
 
 def _surface_metadata_from_adb(adb: dict) -> tuple[dict[int, dict], list[dict]]:
     rows = []
@@ -836,17 +868,6 @@ def _build_ngon_rows(triangle_rows: list[dict], vspgeom: dict, normal_angle_limi
         row.update(_cp_outlier_metrics(row["cp"], cp_neighbors, spike_z_threshold, spike_delta_threshold))
     return rows
 
-def _matches_filters(row: dict, component_ids: set[int] | None, surface_ids: set[int] | None, bbox: tuple[float, float, float, float, float, float] | None) -> bool:
-    if component_ids is not None and row.get("component_id") not in component_ids:
-        return False
-    if surface_ids is not None and row.get("surface_id") not in surface_ids:
-        return False
-    if bbox is not None and "centroid_x" in row:
-        xmin, xmax, ymin, ymax, zmin, zmax = bbox
-        if not (xmin <= row["centroid_x"] <= xmax and ymin <= row["centroid_y"] <= ymax and zmin <= row["centroid_z"] <= zmax):
-            return False
-    return True
-
 def _surface_geometry_from_vspgeom(vspgeom: dict, surface_meta: dict[int, dict]) -> dict[int, dict]:
     out = {}
     by_surface_ngons = defaultdict(list)
@@ -909,26 +930,103 @@ def _surface_geometry_from_vspgeom(vspgeom: dict, surface_meta: dict[int, dict])
         }
     return out
 
-def _node_uv_summary(vspgeom: dict, surface_id: int, node_id: int) -> tuple[float, float, float, float]:
-    vals = vspgeom["node_surface_uv"].get(surface_id, {}).get(node_id, [])
-    if not vals:
-        return math.nan, math.nan, math.nan, math.nan
-    u = [x[0] for x in vals]
-    w = [x[1] for x in vals]
-    return min(u), max(u), min(w), max(w)
+def _length_statistics(values: list[float]) -> dict:
+    finite = np.asarray([x for x in values if math.isfinite(x) and x >= 0.0], dtype=float)
+    if finite.size == 0:
+        return {
+            "count": 0,
+            "min": None,
+            "p01": None,
+            "p10": None,
+            "p50": None,
+            "p90": None,
+            "max": None,
+        }
+    return {
+        "count": int(finite.size),
+        "min": float(finite.min()),
+        "p01": float(np.quantile(finite, 0.01)),
+        "p10": float(np.quantile(finite, 0.10)),
+        "p50": float(np.quantile(finite, 0.50)),
+        "p90": float(np.quantile(finite, 0.90)),
+        "max": float(finite.max()),
+    }
 
-def _infer_kutta_surface(node_ids: list[int], surfaces: dict[int, dict]) -> tuple[int | None, float]:
-    best_id = None
-    best_fraction = 0.0
-    if not node_ids:
-        return None, 0.0
-    nodes = set(node_ids)
-    for surface_id, surface in surfaces.items():
-        fraction = len(nodes & surface["node_id_set"]) / len(nodes)
-        if fraction > best_fraction:
-            best_id = surface_id
-            best_fraction = fraction
-    return best_id, best_fraction
+def _build_surface_mesh_size_rows(
+    vspgeom: dict,
+    surface_meta: dict[int, dict],
+    uv_axis_tolerance: float,
+) -> tuple[list[dict], list[dict]]:
+    """Measure the actual post-intersection VSPGeom edge lengths.
+
+    U/W labels are assigned only when an edge is aligned with one parametric
+    axis within ``uv_axis_tolerance``.  Intersection/cut edges often vary in
+    both coordinates and are deliberately reported as ``mixed`` instead of
+    being forced into a U or W bucket.
+    """
+    edge_rows = []
+    seen = set()
+    for ngon in vspgeom["ngons"]:
+        surface_id = ngon["vspgeom_surface_id"]
+        meta = surface_meta.get(surface_id, {})
+        n = len(ngon["node_ids"])
+        for i, node1 in enumerate(ngon["node_ids"]):
+            node2 = ngon["node_ids"][(i + 1) % n]
+            edge_key = (surface_id, *sorted((node1, node2)))
+            if edge_key in seen:
+                continue
+            seen.add(edge_key)
+            u1, w1 = ngon["uvs"][i]
+            u2, w2 = ngon["uvs"][(i + 1) % n]
+            du = abs(u2 - u1)
+            dw = abs(w2 - w1)
+            if du <= uv_axis_tolerance and dw <= uv_axis_tolerance:
+                direction = "collapsed_parametric"
+            elif dw <= uv_axis_tolerance:
+                direction = "u"
+            elif du <= uv_axis_tolerance:
+                direction = "w"
+            else:
+                direction = "mixed"
+            p1 = vspgeom["nodes"][node1]
+            p2 = vspgeom["nodes"][node2]
+            midpoint = (p1 + p2) / 2.0
+            edge_rows.append(
+                {
+                    "surface_id": surface_id,
+                    "surface_name": meta.get("surface_name", ""),
+                    "component_id": meta.get("component_id"),
+                    "node1": node1,
+                    "node2": node2,
+                    "midpoint_x": float(midpoint[0]),
+                    "midpoint_y": float(midpoint[1]),
+                    "midpoint_z": float(midpoint[2]),
+                    "edge_length": float(np.linalg.norm(p2 - p1)),
+                    "param_u_delta": du,
+                    "param_w_delta": dw,
+                    "param_direction": direction,
+                }
+            )
+
+    surface_rows = []
+    by_surface = defaultdict(list)
+    for row in edge_rows:
+        by_surface[row["surface_id"]].append(row)
+    for surface_id in sorted(by_surface):
+        rows = by_surface[surface_id]
+        meta = surface_meta.get(surface_id, {})
+        summary = {
+            "surface_id": surface_id,
+            "surface_name": meta.get("surface_name", ""),
+            "component_id": meta.get("component_id"),
+        }
+        for direction in ("all", "u", "w", "mixed"):
+            selected = rows if direction == "all" else [r for r in rows if r["param_direction"] == direction]
+            stats = _length_statistics([r["edge_length"] for r in selected])
+            for key, value in stats.items():
+                summary[f"{direction}_edge_{key}"] = value
+        surface_rows.append(summary)
+    return edge_rows, surface_rows
 
 def _relative_difference(a: float | None, b: float | None) -> float | None:
     if a is None or b is None or not math.isfinite(a) or not math.isfinite(b):
@@ -936,111 +1034,82 @@ def _relative_difference(a: float | None, b: float | None) -> float | None:
     scale = max(abs(a), abs(b), 1e-15)
     return abs(a - b) / scale
 
-def _analyze_kutta(vspgeom: dict, surface_meta: dict[int, dict], coverage_min: float, symmetry_tolerance_fraction: float, te_param_near_miss_band: float) -> dict:
+# Kutta / wake diagnostics ----------------------------------------------------
+
+def _analyze_kutta(
+    vspgeom: dict,
+    surface_meta: dict[int, dict],
+    coverage_min: float,
+    symmetry_tolerance_fraction: float,
+    te_param_near_miss_band: float,
+) -> dict:
+    """Analyze Kutta topology without assuming one Kutta list belongs to one surface.
+
+    A full-span Kutta polyline can legitimately contain nodes from both mirrored
+    lifting surfaces.  Attribution is therefore done node-by-node and each line
+    may contribute to multiple surfaces.
+    """
     surfaces = _surface_geometry_from_vspgeom(vspgeom, surface_meta)
     kutta_lines = []
     kutta_nodes = []
     kutta_node_set = set()
+    surface_kutta_nodes = defaultdict(set)
+    surface_kutta_lists = defaultdict(set)
 
     for kutta in vspgeom["kutta_lists"]:
         node_ids = kutta["node_ids"]
         kutta_node_set.update(node_ids)
-        surface_id, inference_fraction = _infer_kutta_surface(node_ids, surfaces)
-        surface = surfaces.get(surface_id) if surface_id is not None else None
+        attributed_nodes = set()
+        attributed_surface_ids = []
+        for surface_id, surface in surfaces.items():
+            shared = [node_id for node_id in node_ids if node_id in surface["node_id_set"]]
+            if not shared:
+                continue
+            attributed_surface_ids.append(surface_id)
+            attributed_nodes.update(shared)
+            if not kutta["body_wake"]:
+                surface_kutta_nodes[surface_id].update(shared)
+                surface_kutta_lists[surface_id].add(kutta["kutta_list_id"])
+
         points = [tuple(vspgeom["nodes"][node_id]) for node_id in node_ids]
         metrics = _polyline_metrics(points)
-        span_axis = surface["span_axis"] if surface else ""
-        if span_axis == "y":
-            span_values = [p[1] for p in points]
-        elif span_axis == "z":
-            span_values = [p[2] for p in points]
-        else:
-            span_values = []
-        span_min = min(span_values) if span_values else math.nan
-        span_max = max(span_values) if span_values else math.nan
-        outer_abs_span = max((abs(v) for v in span_values), default=math.nan)
-        surface_outer = surface["span_outer_abs"] if surface else math.nan
-        coverage = outer_abs_span / surface_outer if surface and surface_outer > 0 else math.nan
-        side = ""
-        if span_values:
-            mean_span = sum(span_values) / len(span_values)
-            side = "positive" if mean_span > 0 else "negative" if mean_span < 0 else "center"
-
-        max_w_offset = math.nan
-        if surface:
-            offsets = []
-            for node_id in node_ids:
-                _, _, wmin, wmax = _node_uv_summary(vspgeom, surface_id, node_id)
-                if math.isfinite(wmin):
-                    offsets.append(max(abs(wmin - surface["param_w_min"]), abs(wmax - surface["param_w_min"])))
-            max_w_offset = max(offsets) if offsets else math.nan
-
         kutta_lines.append(
             {
                 "kutta_list_id": kutta["kutta_list_id"],
                 "body_wake": kutta["body_wake"],
                 "wake_part_num": kutta["wake_part_num"],
                 "n_nodes": len(node_ids),
-                "surface_id": surface_id,
-                "surface_name": surface["surface_name"] if surface else "",
-                "component_id": surface["component_id"] if surface else None,
-                "surface_inference_fraction": inference_fraction,
-                "span_axis": span_axis,
-                "side": side,
+                "surface_ids": attributed_surface_ids,
+                "surface_names": [surfaces[sid]["surface_name"] for sid in attributed_surface_ids],
+                "component_ids": sorted({surfaces[sid]["component_id"] for sid in attributed_surface_ids}),
+                "surface_attribution_fraction": len(attributed_nodes) / len(node_ids) if node_ids else 0.0,
                 **metrics,
-                "span_min": span_min,
-                "span_max": span_max,
-                "outer_abs_span": outer_abs_span,
-                "surface_outer_abs_span": surface_outer,
-                "outer_coverage_fraction": coverage,
-                "kutta_param_w_offset_max": max_w_offset,
             }
         )
 
         for sequence_index, node_id in enumerate(node_ids, start=1):
             xyz = vspgeom["nodes"][node_id]
-            umin = umax = wmin = wmax = math.nan
-            surface_wmin = math.nan
-            offset = math.nan
-            if surface:
-                umin, umax, wmin, wmax = _node_uv_summary(vspgeom, surface_id, node_id)
-                surface_wmin = surface["param_w_min"]
-                if math.isfinite(wmin):
-                    offset = min(abs(wmin - surface_wmin), abs(wmax - surface_wmin))
+            node_surface_ids = [sid for sid, surface in surfaces.items() if node_id in surface["node_id_set"]]
             kutta_nodes.append(
                 {
                     "kutta_list_id": kutta["kutta_list_id"],
                     "sequence_index": sequence_index,
                     "node_id": node_id,
                     "wake_part_num": kutta["wake_part_num"],
-                    "surface_id": surface_id,
-                    "surface_name": surface["surface_name"] if surface else "",
-                    "component_id": surface["component_id"] if surface else None,
-                    "span_axis": span_axis,
-                    "side": side,
+                    "surface_ids": node_surface_ids,
+                    "surface_names": [surfaces[sid]["surface_name"] for sid in node_surface_ids],
+                    "component_ids": sorted({surfaces[sid]["component_id"] for sid in node_surface_ids}),
                     "x": float(xyz[0]),
                     "y": float(xyz[1]),
                     "z": float(xyz[2]),
-                    "param_u_min": umin,
-                    "param_u_max": umax,
-                    "param_w_min": wmin,
-                    "param_w_max": wmax,
-                    "surface_param_w_min": surface_wmin,
-                    "param_w_offset_min": offset,
                 }
             )
-
-    by_surface_lines = defaultdict(list)
-    for row in kutta_lines:
-        if row["surface_id"] is not None and not row["body_wake"]:
-            by_surface_lines[row["surface_id"]].append(row)
 
     surface_rows = []
     near_miss_edges = []
     for surface_id, surface in surfaces.items():
-        strict_count = 0
-        near_count = 0
-        near_miss_count = 0
+        strict_edges = []
+        near_edges = []
         for edge in surface["edges"]:
             wmin = surface["param_w_min"]
             off1 = edge["w1"] - wmin
@@ -1048,14 +1117,13 @@ def _analyze_kutta(vspgeom: dict, surface_meta: dict[int, dict], coverage_min: f
             strict = off1 <= WAKE_EDGE_TOLERANCE and off2 <= WAKE_EDGE_TOLERANCE
             near = off1 <= te_param_near_miss_band and off2 <= te_param_near_miss_band
             if strict:
-                strict_count += 1
+                strict_edges.append(edge)
             if near:
-                near_count += 1
+                near_edges.append(edge)
             if near and not strict:
-                near_miss_count += 1
                 p1 = vspgeom["nodes"][edge["node1"]]
                 p2 = vspgeom["nodes"][edge["node2"]]
-                mid = (p1 + p2) / 2
+                mid = (p1 + p2) / 2.0
                 near_miss_edges.append(
                     {
                         "surface_id": surface_id,
@@ -1081,64 +1149,70 @@ def _analyze_kutta(vspgeom: dict, surface_meta: dict[int, dict], coverage_min: f
                     }
                 )
 
-        lines = by_surface_lines.get(surface_id, [])
-        positive = [x for x in lines if x["side"] == "positive"]
-        negative = [x for x in lines if x["side"] == "negative"]
-        n_nodes = sum(x["n_nodes"] for x in lines)
-        outer = max((x["outer_abs_span"] for x in lines), default=math.nan)
-        coverage = outer / surface["span_outer_abs"] if surface["span_outer_abs"] > 0 and math.isfinite(outer) else math.nan
-        pos_outer = max((x["outer_abs_span"] for x in positive), default=math.nan)
-        neg_outer = max((x["outer_abs_span"] for x in negative), default=math.nan)
-        pos_cov = pos_outer / surface["span_outer_abs"] if math.isfinite(pos_outer) else math.nan
-        neg_cov = neg_outer / surface["span_outer_abs"] if math.isfinite(neg_outer) else math.nan
-        coverage_passed = True if not lines else (math.isfinite(coverage) and coverage >= coverage_min)
+        te_edges = strict_edges or near_edges
+        te_node_ids = {node_id for edge in te_edges for node_id in (edge["node1"], edge["node2"])}
+        span_index = 1 if surface["span_axis"] == "y" else 2
+        if te_node_ids:
+            te_outer = max(abs(float(vspgeom["nodes"][node_id][span_index])) for node_id in te_node_ids)
+            coverage_reference = "parametric_te_edges"
+        else:
+            te_outer = surface["span_outer_abs"]
+            coverage_reference = "surface_bbox_fallback"
+
+        node_ids = sorted(surface_kutta_nodes.get(surface_id, set()))
+        span_values = [float(vspgeom["nodes"][node_id][span_index]) for node_id in node_ids]
+        outer = max((abs(value) for value in span_values), default=math.nan)
+        coverage = outer / te_outer if te_outer > 0 and math.isfinite(outer) else math.nan
+        positive_values = [value for value in span_values if value > 0]
+        negative_values = [value for value in span_values if value < 0]
+        pos_outer = max(positive_values, default=math.nan)
+        neg_outer = max((-value for value in negative_values), default=math.nan)
+        pos_cov = pos_outer / te_outer if math.isfinite(pos_outer) and te_outer > 0 else math.nan
+        neg_cov = neg_outer / te_outer if math.isfinite(neg_outer) and te_outer > 0 else math.nan
+        line_count = len(surface_kutta_lists.get(surface_id, set()))
+        coverage_passed = True if line_count == 0 else (math.isfinite(coverage) and coverage >= coverage_min)
         surface_rows.append(
             {
                 **{k: v for k, v in surface.items() if k not in {"node_ids", "node_id_set", "edges"}},
-                "strict_parametric_te_edge_count": strict_count,
-                "near_parametric_te_edge_count": near_count,
-                "te_param_near_miss_edge_count": near_miss_count,
-                "n_kutta_lists": len(lines),
-                "n_kutta_nodes": n_nodes,
+                "strict_parametric_te_edge_count": len(strict_edges),
+                "near_parametric_te_edge_count": len(near_edges),
+                "te_param_near_miss_edge_count": len(near_edges) - len(strict_edges),
+                "kutta_coverage_reference": coverage_reference,
+                "te_outer_abs_span": te_outer,
+                "n_kutta_lists": line_count,
+                "n_kutta_nodes": len(node_ids),
                 "kutta_outer_abs_span": outer,
                 "kutta_outer_coverage_fraction": coverage,
                 "positive_kutta_outer_span": pos_outer,
                 "negative_kutta_outer_span_abs": neg_outer,
                 "positive_kutta_coverage_fraction": pos_cov,
                 "negative_kutta_coverage_fraction": neg_cov,
-                "is_y_symmetric_geometry": False,
-                "geometry_outer_extent_relative_difference": None,
                 "kutta_coverage_passed": coverage_passed,
             }
         )
 
-    surface_row_by_id = {r["surface_id"]: r for r in surface_rows}
+    surface_row_by_id = {row["surface_id"]: row for row in surface_rows}
     for row in near_miss_edges:
-        srow = surface_row_by_id.get(row["surface_id"])
-        row["surface_kutta_coverage_passed"] = srow["kutta_coverage_passed"] if srow else None
+        surface_row = surface_row_by_id.get(row["surface_id"])
+        row["surface_kutta_coverage_passed"] = surface_row["kutta_coverage_passed"] if surface_row else None
 
     symmetry_rows = []
     grouped = defaultdict(list)
     for row in surface_rows:
         grouped[(row["component_id"], row["surface_name"])].append(row)
     for (component_id, surface_name), items in grouped.items():
-        if len(items) != 2:
+        if len(items) != 2 or any(item["span_axis"] != "y" for item in items):
             continue
-        a, b = items
-        if a["span_axis"] != "y" or b["span_axis"] != "y":
-            continue
-        positive = a if a["y_min"] >= 0 else b if b["y_min"] >= 0 else None
-        negative = a if a["y_max"] <= 0 else b if b["y_max"] <= 0 else None
+        positive = next((item for item in items if item["y_min"] >= 0), None)
+        negative = next((item for item in items if item["y_max"] <= 0), None)
         if positive is None or negative is None:
             continue
         outer_diff = _relative_difference(positive["kutta_outer_abs_span"], negative["kutta_outer_abs_span"])
         node_diff = _relative_difference(float(positive["n_kutta_nodes"]), float(negative["n_kutta_nodes"]))
-        geometry_diff = _relative_difference(positive["span_outer_abs"], negative["span_outer_abs"])
+        geometry_diff = _relative_difference(positive["te_outer_abs_span"], negative["te_outer_abs_span"])
         cov_diff = _relative_difference(positive["kutta_outer_coverage_fraction"], negative["kutta_outer_coverage_fraction"])
-        passed = all(
-            d is not None and d <= symmetry_tolerance_fraction
-            for d in (outer_diff, node_diff, geometry_diff, cov_diff)
-        )
+        differences = (outer_diff, node_diff, geometry_diff, cov_diff)
+        passed = all(value is not None and value <= symmetry_tolerance_fraction for value in differences)
         symmetry_rows.append(
             {
                 "component_id": component_id,
@@ -1161,9 +1235,15 @@ def _analyze_kutta(vspgeom: dict, surface_meta: dict[int, dict], coverage_min: f
             }
         )
 
-    unresolved = [x for x in kutta_lines if not x["body_wake"] and (x["surface_id"] is None or x["surface_inference_fraction"] < 0.5)]
-    coverage_failures = [x for x in surface_rows if x["n_kutta_lists"] > 0 and not x["kutta_coverage_passed"]]
-    symmetry_failures = [x for x in symmetry_rows if not x["passed"]]
+    unresolved = [
+        row for row in kutta_lines
+        if not row["body_wake"] and row["surface_attribution_fraction"] < 0.5
+    ]
+    coverage_failures = [
+        row for row in surface_rows
+        if row["n_kutta_lists"] > 0 and not row["kutta_coverage_passed"]
+    ]
+    symmetry_failures = [row for row in symmetry_rows if not row["passed"]]
     return {
         "lines": kutta_lines,
         "nodes": kutta_nodes,
@@ -1217,6 +1297,23 @@ def _build_junction_quality_rows(topology: dict, triangle_rows: list[dict], node
         node1, node2 = item["edge"]
         p1, p2 = nodes[node1], nodes[node2]
         incident = [by_id[t] for t in item["triangle_ids"] if t in by_id]
+        local_edge_lengths = []
+        junction_edge = tuple(sorted((node1, node2)))
+        seen_local_edges = set()
+        for triangle in incident:
+            triangle_nodes = (triangle["node1"], triangle["node2"], triangle["node3"])
+            for a, b in (
+                (triangle_nodes[0], triangle_nodes[1]),
+                (triangle_nodes[1], triangle_nodes[2]),
+                (triangle_nodes[2], triangle_nodes[0]),
+            ):
+                edge = tuple(sorted((a, b)))
+                if edge == junction_edge or edge in seen_local_edges:
+                    continue
+                seen_local_edges.add(edge)
+                local_edge_lengths.append(float(np.linalg.norm(nodes[edge[1]] - nodes[edge[0]])))
+        local_stats = _length_statistics(local_edge_lengths)
+        edge_length = float(np.linalg.norm(p2 - p1))
         rows.append(
             {
                 "junction_edge_id": junction_id,
@@ -1225,7 +1322,16 @@ def _build_junction_quality_rows(topology: dict, triangle_rows: list[dict], node
                 "midpoint_x": float((p1[0] + p2[0]) / 2),
                 "midpoint_y": float((p1[1] + p2[1]) / 2),
                 "midpoint_z": float((p1[2] + p2[2]) / 2),
-                "edge_length": float(np.linalg.norm(p2 - p1)),
+                "edge_length": edge_length,
+                "local_regular_edge_count": local_stats["count"],
+                "local_regular_edge_p10": local_stats["p10"],
+                "local_regular_edge_p50": local_stats["p50"],
+                "local_regular_edge_p90": local_stats["p90"],
+                "junction_to_local_p50_ratio": (
+                    edge_length / local_stats["p50"]
+                    if local_stats["p50"] is not None and local_stats["p50"] > 0
+                    else None
+                ),
                 "triangle_ids": item["triangle_ids"],
                 "component_surface_pairs": item["component_surface_pairs"],
                 "incident_triangle_count": len(incident),
@@ -1286,6 +1392,8 @@ def _cp_force_integration(triangle_rows: list[dict], header: dict, alpha_deg: fl
     rows = [make_row(cid, name, data) for (cid, name), data in sorted(accum.items())]
     total = make_row(0, "TOTAL", {"force": total_force, "moment": total_moment, "area": total_area})
     return total, rows
+
+# Solution sidecars and model metadata ---------------------------------------
 
 def _parse_named_value_metadata(lines: list[str]) -> dict:
     out = {}
@@ -1354,12 +1462,6 @@ def read_history(path: str | Path) -> dict:
         rows.append(dict(zip(header, values)))
     return {"path": str(path), "metadata": metadata, "header": header or [], "rows": rows}
 
-def read_polar(path: str | Path) -> dict:
-    return _parse_whitespace_table(path, ("Beta ", "Mach ", "AoA "))
-
-def read_lod(path: str | Path) -> dict:
-    return _parse_whitespace_table(path, ("Iter ",))
-
 def read_vspaero_config(path: str | Path) -> dict:
     path = Path(path)
     data = {}
@@ -1382,11 +1484,80 @@ def read_vsp3_metadata(path: str | Path) -> dict:
         root = ET.parse(path).getroot()
     except Exception as exc:
         return {"path": str(path), "read_error": repr(exc)}
+
+    def value(element):
+        if element is None:
+            return None
+        raw = element.get("Value")
+        if raw is None:
+            return element.text
+        try:
+            number = float(raw)
+            return int(number) if number.is_integer() else number
+        except ValueError:
+            return raw
+
     version = root.findtext("Version")
     vehicle_name = root.findtext("./Vehicle/ParmContainer/Name")
-    return {"path": str(path), "vsp3_schema_version": version, "vehicle_name": vehicle_name}
+    geom_rows = []
+    for geom in root.findall(".//Geom"):
+        name = geom.findtext("./ParmContainer/Name")
+        if not name:
+            continue
+        row = {
+            "geom_name": name,
+            "tess_w": value(geom.find(".//Tess_W")),
+            "le_cluster": value(geom.find(".//LECluster")),
+            "te_cluster": value(geom.find(".//TECluster")),
+            "cap_u_min_option": value(geom.find(".//CapUMinOption")),
+            "cap_u_max_option": value(geom.find(".//CapUMaxOption")),
+            "cap_u_min_tess": value(geom.find(".//CapUMinTess")),
+            "rotate_airfoil_match_dihedral_flag": value(geom.find(".//RotateAirfoilMatchDideralFlag")),
+            "xsecs": [],
+        }
+        xsec_surf = geom.find(".//XSecSurf")
+        if xsec_surf is not None:
+            for index, xsec in enumerate(xsec_surf.findall("./XSec")):
+                row["xsecs"].append(
+                    {
+                        "index": index,
+                        "sect_tess_u": value(xsec.find(".//SectTess_U")),
+                        "x_loc_percent": value(xsec.find(".//XLocPercent")),
+                        "in_cluster": value(xsec.find(".//InCluster")),
+                        "out_cluster": value(xsec.find(".//OutCluster")),
+                        "fwd_cluster": value(xsec.find(".//FwdCluster")),
+                        "aft_cluster": value(xsec.find(".//AftCluster")),
+                        "te_close_type": value(xsec.find(".//TE_Close_Type")),
+                        "te_close_thick": value(xsec.find(".//TE_Close_Thick")),
+                    }
+                )
+        geom_rows.append(row)
+    vspaero_node = root.find(".//VSPAEROSettings/ParmContainer/VSPAERO")
+    vspaero_settings = None
+    if vspaero_node is not None:
+        vspaero_settings = {
+            "geom_set": value(vspaero_node.find("GeomSet")),
+            "thin_geom_set": value(vspaero_node.find("ThinGeomSet")),
+            "fixed_wake_flag": value(vspaero_node.find("FixedWakeFlag")),
+            "wake_num_iter": value(vspaero_node.find("WakeNumIter")),
+            "root_wake_nodes": value(vspaero_node.find("RootWakeNodes")),
+        }
 
-def _lod_diagnostics(lod: dict | None, cl_abs_warning: float, cmy_abs_warning: float, symmetry_relative_warning: float) -> dict:
+    return {
+        "path": str(path),
+        "vsp3_schema_version": version,
+        "vehicle_name": vehicle_name,
+        "geometry_parameters": geom_rows,
+        "vspaero_settings": vspaero_settings,
+    }
+
+def _lod_diagnostics(
+    lod: dict | None,
+    cl_abs_warning: float,
+    cmy_abs_warning: float,
+    symmetry_relative_warning: float,
+    symmetry_absolute_cl_warning: float,
+) -> dict:
     if not lod or not lod.get("rows"):
         return {"outliers": [], "symmetry": [], "summary": {"lod_available": False}}
     rows = lod["rows"]
@@ -1419,9 +1590,16 @@ def _lod_diagnostics(lod: dict | None, cl_abs_warning: float, cmy_abs_warning: f
             continue
         ip, p = pair["positive"]
         ineg, n = pair["negative"]
+        cl_abs_diff = abs(p.get("Cl", math.nan) - n.get("Cl", math.nan))
         cl_diff = _relative_difference(p.get("Cl"), n.get("Cl"))
         cdi_diff = _relative_difference(p.get("Cdi"), n.get("Cdi"))
-        passed = cl_diff is not None and cl_diff <= symmetry_relative_warning
+        passed = (
+            math.isfinite(cl_abs_diff)
+            and (
+                cl_abs_diff < symmetry_absolute_cl_warning
+                or (cl_diff is not None and cl_diff <= symmetry_relative_warning)
+            )
+        )
         symmetry.append(
             {
                 "positive_row_index": ip,
@@ -1433,9 +1611,11 @@ def _lod_diagnostics(lod: dict | None, cl_abs_warning: float, cmy_abs_warning: f
                 "dSpan": key[4],
                 "positive_Cl": p.get("Cl"),
                 "negative_Cl": n.get("Cl"),
+                "Cl_absolute_difference": cl_abs_diff,
                 "Cl_relative_difference": cl_diff,
                 "Cdi_relative_difference": cdi_diff,
-                "warning_threshold": symmetry_relative_warning,
+                "relative_warning_threshold": symmetry_relative_warning,
+                "absolute_cl_warning_threshold": symmetry_absolute_cl_warning,
                 "passed": passed,
             }
         )
@@ -1456,10 +1636,73 @@ def _lod_diagnostics(lod: dict | None, cl_abs_warning: float, cmy_abs_warning: f
             "lod_cl_abs_warning_threshold": cl_abs_warning,
             "lod_cmy_abs_warning_threshold": cmy_abs_warning,
             "lod_symmetry_relative_warning_threshold": symmetry_relative_warning,
+            "lod_symmetry_absolute_cl_warning_threshold": symmetry_absolute_cl_warning,
         },
     }
 
-def _solution_diagnostics(history: dict | None, polar: dict | None, vspaero: dict | None, surface_wake_cl_relative_warning: float) -> dict:
+def _attach_lod_mesh_context(
+    outliers: list[dict],
+    mesh_rows: list[dict],
+    junction_rows: list[dict],
+):
+    if not outliers:
+        return
+    mesh_points = [
+        (
+            row,
+            np.array([row["centroid_x"], row["centroid_y"], row["centroid_z"]], dtype=float),
+        )
+        for row in mesh_rows
+        if all(math.isfinite(row.get(key, math.nan)) for key in ("centroid_x", "centroid_y", "centroid_z"))
+    ]
+    junction_points = [
+        (
+            row,
+            np.array([row["midpoint_x"], row["midpoint_y"], row["midpoint_z"]], dtype=float),
+        )
+        for row in junction_rows
+    ]
+    for outlier in outliers:
+        if not all(math.isfinite(outlier.get(key, math.nan)) for key in ("Xavg", "Yavg", "Zavg")):
+            continue
+        point = np.array([outlier["Xavg"], outlier["Yavg"], outlier["Zavg"]], dtype=float)
+        if mesh_points:
+            mesh_row, mesh_point = min(mesh_points, key=lambda item: float(np.linalg.norm(point - item[1])))
+            outlier.update(
+                {
+                    "nearest_mesh_centroid_distance": float(np.linalg.norm(point - mesh_point)),
+                    "nearest_mesh_ngon_id": mesh_row.get("ngon_id"),
+                    "nearest_mesh_triangle_id": mesh_row.get("triangle_id"),
+                    "nearest_mesh_component_id": mesh_row.get("component_id"),
+                    "nearest_mesh_surface_id": mesh_row.get("surface_id"),
+                    "nearest_mesh_surface_name": mesh_row.get("surface_name"),
+                    "nearest_mesh_min_angle_deg": mesh_row.get("child_min_angle_deg", mesh_row.get("angle_min_deg")),
+                    "nearest_mesh_edge_ratio": mesh_row.get("child_max_edge_ratio", mesh_row.get("edge_ratio")),
+                    "nearest_mesh_neighbor_area_ratio": mesh_row.get("child_max_neighbor_area_ratio", mesh_row.get("neighbor_area_ratio")),
+                    "nearest_mesh_cp": mesh_row.get("cp"),
+                }
+            )
+        if junction_points:
+            junction_row, junction_point = min(
+                junction_points,
+                key=lambda item: float(np.linalg.norm(point - item[1])),
+            )
+            outlier.update(
+                {
+                    "nearest_junction_distance": float(np.linalg.norm(point - junction_point)),
+                    "nearest_junction_edge_id": junction_row["junction_edge_id"],
+                    "nearest_junction_edge_length": junction_row["edge_length"],
+                    "nearest_junction_to_local_p50_ratio": junction_row.get("junction_to_local_p50_ratio"),
+                }
+            )
+
+def _solution_diagnostics(
+    history: dict | None,
+    polar: dict | None,
+    vspaero: dict | None,
+    cp_force_total: dict,
+    settings: MeshQualitySettings,
+) -> dict:
     source = None
     final = None
     if history and history.get("rows"):
@@ -1470,20 +1713,22 @@ def _solution_diagnostics(history: dict | None, polar: dict | None, vspaero: dic
         final = polar["rows"][-1]
 
     summary = {
-        "solution_data_available": final is not None,
-        "solution_primary_source": source,
-        "surface_wake_cl_relative_warning_threshold": surface_wake_cl_relative_warning,
+        "available": final is not None,
+        "primary_source": source,
+        "surface_wake_cl_relative_warning_threshold": settings.surface_wake_cl_relative_warning,
     }
     if final is None:
-        return {"summary": summary, "final": None}
+        return {"summary": summary, "final": None, "advisories": []}
 
+    coefficients = {}
     for key in (
         "Mach", "AoA", "Beta", "CLo", "CLi", "CLtot", "CDo", "CDi", "CDtot",
         "CSo", "CSi", "CStot", "CMxtot", "CMytot", "CMztot", "CLwtot", "CDwtot",
         "CSwtot", "CLiw", "CDiw", "CSiw", "L/D", "E", "LoDw", "Ew", "L2_Residual", "Max_Residual",
     ):
         if key in final:
-            summary[f"solution_{key.replace('/', '_over_').replace(' ', '_')}"] = final[key]
+            coefficients[key] = final[key]
+    summary["coefficients"] = coefficients
 
     cltot = final.get("CLtot")
     clw = final.get("CLwtot")
@@ -1491,37 +1736,57 @@ def _solution_diagnostics(history: dict | None, polar: dict | None, vspaero: dic
     cliw = final.get("CLiw")
     cstot = final.get("CStot")
     csw = final.get("CSwtot")
+    cdi = final.get("CDi")
+    beta = final.get("Beta")
     summary["surface_wake_cl_relative_difference"] = _relative_difference(cltot, clw)
     summary["surface_wake_cli_relative_difference"] = _relative_difference(cli, cliw)
-    summary["surface_wake_cs_absolute_difference"] = abs(cstot - csw) if cstot is not None and csw is not None else None
-    d = summary["surface_wake_cl_relative_difference"]
-    summary["surface_wake_cl_difference_advisory"] = d is not None and d >= surface_wake_cl_relative_warning
+    summary["surface_wake_cs_absolute_difference"] = (
+        abs(cstot - csw) if cstot is not None and csw is not None else None
+    )
+    summary["surface_cp_cl_relative_difference"] = _relative_difference(
+        cltot, cp_force_total.get("CL_cp")
+    )
+    summary["wake_cp_cl_relative_difference"] = _relative_difference(
+        clw, cp_force_total.get("CL_cp")
+    )
 
-    wake_iters = None
-    implicit_wake = None
-    if vspaero:
-        wake_iters = vspaero["values"].get("WakeIters")
-        implicit_wake = vspaero["values"].get("ImplicitWake")
+    advisories = []
+    cl_difference = summary["surface_wake_cl_relative_difference"]
+    if cl_difference is not None and cl_difference >= settings.surface_wake_cl_relative_warning:
+        advisories.append("surface_wake_cl_difference")
+    if (
+        beta is not None
+        and cstot is not None
+        and abs(beta) <= 1.0e-12
+        and abs(cstot) >= settings.beta_zero_side_force_abs_warning
+    ):
+        advisories.append("beta_zero_surface_side_force")
+    if cdi is not None and math.isfinite(cdi) and cdi < 0.0:
+        advisories.append("negative_surface_induced_drag")
+    summary["advisories"] = advisories
+
+    wake_iters = vspaero["values"].get("WakeIters") if vspaero else None
+    implicit_wake = vspaero["values"].get("ImplicitWake") if vspaero else None
     summary["wake_iterations"] = wake_iters
     summary["implicit_wake"] = implicit_wake
     if wake_iters == 0 and history and len(history.get("rows", [])) == 1:
         summary["history_residual_interpretation"] = (
-            "fixed_wake_single_solve: reported residual is retained as diagnostic only; "
-            "do not treat the single history row as a nonlinear wake-convergence history"
+            "fixed_wake_single_solve: reported residual is diagnostic only; "
+            "the single row is not a nonlinear wake-convergence history"
         )
     else:
         summary["history_residual_interpretation"] = "standard_iteration_history_or_unknown"
-    return {"summary": summary, "final": final}
+    return {"summary": summary, "final": final, "advisories": advisories}
 
-def _build_extreme_cells(rows: list[dict], extreme_angle_deg: float, extreme_area_ratio: float, extreme_edge_ratio: float) -> list[dict]:
+def _build_extreme_cells(rows: list[dict], settings: MeshQualitySettings) -> list[dict]:
     out = []
     for row in rows:
         angle = row.get("child_min_angle_deg", row.get("angle_min_deg", math.nan))
         area_ratio = row.get("child_max_neighbor_area_ratio", row.get("neighbor_area_ratio", math.nan))
         edge_ratio = row.get("child_max_edge_ratio", row.get("edge_ratio", math.nan))
-        angle_flag = math.isfinite(angle) and angle <= extreme_angle_deg
-        area_flag = math.isfinite(area_ratio) and area_ratio >= extreme_area_ratio
-        edge_flag = math.isfinite(edge_ratio) and edge_ratio >= extreme_edge_ratio
+        angle_flag = math.isfinite(angle) and angle <= settings.extreme_angle_deg
+        area_flag = math.isfinite(area_ratio) and area_ratio >= settings.extreme_area_ratio
+        edge_flag = math.isfinite(edge_ratio) and edge_ratio >= settings.extreme_edge_ratio
         cp_flag = bool(row.get("is_negative_cp_spike")) or bool(row.get("is_cp_floor_plateau"))
         if angle_flag or area_flag or edge_flag:
             out.append(
@@ -1536,16 +1801,10 @@ def _build_extreme_cells(rows: list[dict], extreme_angle_deg: float, extreme_are
             )
     return out
 
-def _json_value(value):
-    """Recursively convert analysis results to strict JSON-compatible values.
+# Report serialization and top-level analysis --------------------------------
 
-    NumPy scalar classes are not all subclasses of the corresponding Python
-    scalar classes (notably ``np.bool_``).  Converting only floating/integer
-    values therefore leaves nested NumPy booleans in summaries and causes
-    ``json.dump`` to fail.  Normalize every ``np.generic`` scalar first, then
-    recurse through containers.  Non-finite floating values are represented as
-    JSON null rather than non-standard NaN/Infinity literals.
-    """
+def _json_value(value):
+    """Convert NumPy/path values recursively into strict JSON values."""
     if isinstance(value, np.generic):
         return _json_value(value.item())
     if isinstance(value, Path):
@@ -1555,9 +1814,9 @@ def _json_value(value):
     if isinstance(value, np.ndarray):
         return _json_value(value.tolist())
     if isinstance(value, dict):
-        return {str(_json_value(k)): _json_value(v) for k, v in value.items()}
+        return {str(_json_value(key)): _json_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
-        return [_json_value(x) for x in value]
+        return [_json_value(item) for item in value]
     return value
 
 def _write_csv(path: Path, rows: list[dict], fieldnames: list[str] | None = None):
@@ -1569,20 +1828,104 @@ def _write_csv(path: Path, rows: list[dict], fieldnames: list[str] | None = None
                 if key not in seen:
                     seen.add(key)
                     fieldnames.append(key)
+    if not fieldnames:
+        fieldnames = ["unavailable"]
     with path.open("w", newline="", encoding="utf-8-sig") as fp:
-        if not fieldnames:
-            return
         writer = csv.DictWriter(fp, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
             writer.writerow({key: _json_value(row.get(key)) for key in fieldnames})
 
-def _autodiscover_sidecar(adb_path: Path, explicit: str | Path | None, suffix: str) -> Path | None:
+def _resolve_sidecar(adb_path: Path, explicit: str | Path | None, suffix: str) -> Path | None:
     if explicit is not None:
-        p = Path(explicit)
-        return p if p.is_file() else None
+        path = Path(explicit)
+        if not path.is_file():
+            raise FileNotFoundError(f"Explicit sidecar does not exist: {path}")
+        return path
     candidate = adb_path.with_suffix(suffix)
     return candidate if candidate.is_file() else None
+
+def _write_report_files(output_dir: Path, result: dict):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_csv(output_dir / "mesh_quality_triangles.csv", result["triangles"])
+    _write_csv(output_dir / "mesh_quality_ngons.csv", result["ngons"])
+    _write_csv(output_dir / "mesh_edges.csv", result["mesh_edges"], [
+        "surface_id", "surface_name", "component_id", "node1", "node2",
+        "midpoint_x", "midpoint_y", "midpoint_z", "edge_length",
+        "param_u_delta", "param_w_delta", "param_direction",
+    ])
+    _write_csv(output_dir / "mesh_surface_sizes.csv", result["mesh_surface_sizes"])
+    _write_csv(output_dir / "cp_spikes.csv", result["spikes"], [
+        "ngon_id", "triangle_id", "component_id", "surface_id", "surface_name", "cp",
+        "cp_local_delta", "nearest_kutta_distance", "nearest_kutta_endpoint_distance",
+        "nearest_kutta_list_id",
+    ])
+    _write_csv(output_dir / "cp_plateaus.csv", result["plateaus"], [
+        "ngon_id", "triangle_id", "component_id", "surface_id", "surface_name", "cp",
+        "cp_floor_plateau_size", "nearest_kutta_distance", "nearest_kutta_endpoint_distance",
+        "nearest_kutta_list_id",
+    ])
+    _write_csv(output_dir / "mesh_quality_surfaces.csv", result["surface_metadata"], [
+        "surface_id", "surface_name", "component_id",
+    ])
+    _write_csv(output_dir / "mesh_quality_components.csv", result["component_metadata"], [
+        "component_id", "n_surfaces", "surface_ids", "surface_names",
+    ])
+    _write_csv(output_dir / "mesh_extreme_cells.csv", result["extreme_cells"])
+    _write_csv(output_dir / "junction_quality.csv", result["junction_quality"], [
+        "junction_edge_id", "node1", "node2", "midpoint_x", "midpoint_y", "midpoint_z",
+        "edge_length", "local_regular_edge_count", "local_regular_edge_p10",
+        "local_regular_edge_p50", "local_regular_edge_p90", "junction_to_local_p50_ratio",
+        "triangle_ids", "component_surface_pairs", "incident_triangle_count",
+        "incident_min_angle_deg", "incident_max_edge_ratio", "incident_max_neighbor_area_ratio",
+        "incident_cp_min", "incident_cp_max",
+    ])
+    _write_csv(output_dir / "cp_force_components.csv", result["cp_force_components"] + [result["cp_force_total"]])
+    _write_csv(output_dir / "adb_trailing_vortex_edges.csv", result["adb_trailing_vortex_edges"])
+
+    kutta = result["kutta"]
+    _write_csv(output_dir / "kutta_lines.csv", kutta["lines"] if kutta else [], [
+        "kutta_list_id", "body_wake", "wake_part_num", "n_nodes", "surface_ids",
+        "surface_names", "component_ids", "surface_attribution_fraction", "arc_length",
+    ])
+    _write_csv(output_dir / "kutta_nodes.csv", kutta["nodes"] if kutta else [], [
+        "kutta_list_id", "sequence_index", "node_id", "wake_part_num", "surface_ids",
+        "surface_names", "component_ids", "x", "y", "z",
+    ])
+    _write_csv(output_dir / "kutta_surfaces.csv", kutta["surfaces"] if kutta else [], [
+        "surface_id", "surface_name", "component_id", "span_axis", "te_outer_abs_span",
+        "kutta_coverage_reference", "n_kutta_lists", "n_kutta_nodes", "kutta_outer_abs_span",
+        "kutta_outer_coverage_fraction", "positive_kutta_coverage_fraction",
+        "negative_kutta_coverage_fraction", "kutta_coverage_passed",
+    ])
+    _write_csv(output_dir / "kutta_symmetry.csv", kutta["symmetry"] if kutta else [], [
+        "component_id", "surface_name", "positive_surface_id", "negative_surface_id",
+        "positive_kutta_node_count", "negative_kutta_node_count", "positive_coverage_fraction",
+        "negative_coverage_fraction", "geometry_outer_extent_relative_difference",
+        "outer_extent_relative_difference", "node_count_relative_difference",
+        "coverage_relative_difference", "tolerance_fraction", "passed",
+    ])
+    _write_csv(output_dir / "kutta_te_near_miss_edges.csv", kutta["near_miss_edges"] if kutta else [], [
+        "surface_id", "surface_name", "node1", "node2", "ngon_id", "midpoint_x",
+        "midpoint_y", "midpoint_z", "edge_length", "param_w_offset_max",
+        "surface_kutta_coverage_passed",
+    ])
+
+    history = result["history"]
+    polar = result["polar"]
+    lod = result["lod"]
+    _write_csv(output_dir / "solution_history.csv", history["rows"] if history else [], history["header"] if history else ["unavailable"])
+    _write_csv(output_dir / "solution_polar.csv", polar["rows"] if polar else [], polar["header"] if polar else ["unavailable"])
+    _write_csv(output_dir / "lod_loads.csv", lod["rows"] if lod else [], lod["header"] if lod else ["unavailable"])
+    _write_csv(output_dir / "lod_outliers.csv", result["lod_outliers"])
+    _write_csv(output_dir / "lod_symmetry.csv", result["lod_symmetry"], [
+        "positive_row_index", "negative_row_index", "Xavg", "abs_Yavg", "Zavg", "Chord",
+        "dSpan", "positive_Cl", "negative_Cl", "Cl_absolute_difference",
+        "Cl_relative_difference", "Cdi_relative_difference", "relative_warning_threshold",
+        "absolute_cl_warning_threshold", "passed",
+    ])
+    with (output_dir / "mesh_quality_summary.json").open("w", encoding="utf-8") as fp:
+        json.dump(_json_value(result["summary"]), fp, ensure_ascii=False, indent=2, allow_nan=False)
 
 def analyze_vspaero_mesh_quality(
     adb_path: str | Path,
@@ -1595,28 +1938,11 @@ def analyze_vspaero_mesh_quality(
     vspaero_path: str | Path | None = None,
     vsp3_path: str | Path | None = None,
     solution_case: int = 1,
-    component_ids: Iterable[int] | None = None,
-    surface_ids: Iterable[int] | None = None,
-    bbox: tuple[float, float, float, float, float, float] | None = None,
-    normal_angle_limit_deg: float = 30.0,
-    spike_z_threshold: float = -6.0,
-    spike_delta_threshold: float = -1.0,
-    cp_floor_tolerance: float = 1e-6,
-    cp_floor_min_cells: int = 4,
-    cp_floor_max_cp: float = -2.0,
-    small_angle_advisory_deg: float = 15.0,
-    extreme_angle_deg: float = 0.1,
-    extreme_area_ratio: float = 1000.0,
-    extreme_edge_ratio: float = 100.0,
-    kutta_coverage_min: float = 0.98,
-    kutta_symmetry_tolerance_fraction: float = 0.02,
-    te_param_near_miss_band: float = DEFAULT_TE_PARAM_NEAR_MISS_BAND,
-    lod_cl_abs_warning: float = 3.0,
-    lod_cmy_abs_warning: float = 10.0,
-    lod_symmetry_relative_warning: float = 0.10,
-    surface_wake_cl_relative_warning: float = 0.10,
+    settings: MeshQualitySettings | None = None,
+    runtime_openvsp_version: str | None = None,
 ) -> dict:
-    """Run v4 mesh/Cp/Kutta/wake/solution verification diagnostics."""
+    """Run VSPAERO mesh, Cp, Kutta/wake and solution verification diagnostics."""
+    settings = settings or MeshQualitySettings()
     adb_path = Path(adb_path)
     adb = read_adb_v3(adb_path, solution_case=solution_case)
     surface_meta, surface_metadata_rows = _surface_metadata_from_adb(adb)
@@ -1627,165 +1953,231 @@ def analyze_vspaero_mesh_quality(
     surface_rows = [row for row in triangle_rows if row["surface_id"] > 0]
     surface_triangle_ids = {row["triangle_id"] for row in surface_rows}
     surface_neighbors = {
-        triangle_id: {n for n in triangle_neighbors[triangle_id] if n in surface_triangle_ids}
+        triangle_id: {neighbor for neighbor in triangle_neighbors[triangle_id] if neighbor in surface_triangle_ids}
         for triangle_id in surface_triangle_ids
     }
-    _add_local_cp_metrics(surface_rows, surface_neighbors, normal_angle_limit_deg, spike_z_threshold, spike_delta_threshold)
+    _add_local_cp_metrics(
+        surface_rows,
+        surface_neighbors,
+        settings.normal_angle_limit_deg,
+        settings.spike_z_threshold,
+        settings.spike_delta_threshold,
+    )
     for row in surface_rows:
-        row["warn_small_angle"] = math.isfinite(row["angle_min_deg"]) and row["angle_min_deg"] <= small_angle_advisory_deg
+        row["warn_small_angle"] = (
+            math.isfinite(row["angle_min_deg"])
+            and row["angle_min_deg"] <= settings.small_angle_advisory_deg
+        )
 
+    vspgeom = None
     mapping = None
     ngon_rows = []
-    vspgeom = None
+    mesh_edge_rows = []
+    mesh_surface_size_rows = []
     kutta_result = None
     if vspgeom_path is not None:
         vspgeom_path = Path(vspgeom_path)
         vspgeom = read_vspgeom_v3(vspgeom_path)
         mapping = _attach_parent_ngons(surface_rows, vspgeom)
-        ngon_rows = _build_ngon_rows(surface_rows, vspgeom, normal_angle_limit_deg, spike_z_threshold, spike_delta_threshold)
+        ngon_rows = _build_ngon_rows(
+            surface_rows,
+            vspgeom,
+            settings.normal_angle_limit_deg,
+            settings.spike_z_threshold,
+            settings.spike_delta_threshold,
+        )
         for row in ngon_rows:
-            row["warn_small_angle"] = math.isfinite(row["child_min_angle_deg"]) and row["child_min_angle_deg"] <= small_angle_advisory_deg
-        kutta_result = _analyze_kutta(vspgeom, surface_meta, kutta_coverage_min, kutta_symmetry_tolerance_fraction, te_param_near_miss_band)
+            row["warn_small_angle"] = (
+                math.isfinite(row["child_min_angle_deg"])
+                and row["child_min_angle_deg"] <= settings.small_angle_advisory_deg
+            )
+        mesh_edge_rows, mesh_surface_size_rows = _build_surface_mesh_size_rows(
+            vspgeom, surface_meta, settings.uv_axis_tolerance
+        )
+        kutta_result = _analyze_kutta(
+            vspgeom,
+            surface_meta,
+            settings.kutta_coverage_min,
+            settings.kutta_symmetry_tolerance_fraction,
+            settings.te_param_near_miss_band,
+        )
 
-    component_ids = set(component_ids) if component_ids is not None else None
-    surface_ids = set(surface_ids) if surface_ids is not None else None
-    filtered_triangles = [r for r in surface_rows if _matches_filters(r, component_ids, surface_ids, bbox)]
-    filtered_ngons = [r for r in ngon_rows if _matches_filters(r, component_ids, surface_ids, bbox)]
-
-    triangle_floor = _mark_cp_floor_plateau(filtered_triangles, cp_floor_tolerance, cp_floor_min_cells, cp_floor_max_cp)
-    ngon_floor = _mark_cp_floor_plateau(filtered_ngons, cp_floor_tolerance, cp_floor_min_cells, cp_floor_max_cp)
-    anomaly_source = filtered_ngons if filtered_ngons else filtered_triangles
-    floor_summary = ngon_floor if filtered_ngons else triangle_floor
-    spikes = [row for row in anomaly_source if row["is_negative_cp_spike"]]
-    spikes.sort(key=lambda r: (r["cp"], r.get("cp_local_delta", 0.0)))
+    triangle_floor = _mark_cp_floor_plateau(
+        surface_rows,
+        settings.cp_floor_tolerance,
+        settings.cp_floor_min_cells,
+        settings.cp_floor_max_cp,
+    )
+    ngon_floor = _mark_cp_floor_plateau(
+        ngon_rows,
+        settings.cp_floor_tolerance,
+        settings.cp_floor_min_cells,
+        settings.cp_floor_max_cp,
+    )
+    anomaly_source = ngon_rows if ngon_rows else surface_rows
+    floor_summary = ngon_floor if ngon_rows else triangle_floor
+    spikes = sorted(
+        (row for row in anomaly_source if row["is_negative_cp_spike"]),
+        key=lambda row: (row["cp"], row.get("cp_local_delta", 0.0)),
+    )
     plateaus = [row for row in anomaly_source if row["is_cp_floor_plateau"]]
-
     if kutta_result and vspgeom:
         _attach_nearest_kutta_distance(spikes, kutta_result, vspgeom)
         _attach_nearest_kutta_distance(plateaus, kutta_result, vspgeom)
 
-    extreme_source = filtered_ngons if filtered_ngons else filtered_triangles
-    extreme_cells = _build_extreme_cells(extreme_source, extreme_angle_deg, extreme_area_ratio, extreme_edge_ratio)
+    extreme_source = ngon_rows if ngon_rows else surface_rows
+    extreme_cells = _build_extreme_cells(extreme_source, settings)
     junction_rows = _build_junction_quality_rows(topology, surface_rows, adb["geometry"]["nodes"])
-    cp_force_total, cp_force_components = _cp_force_integration(filtered_triangles, adb["header"], adb["solution"]["alpha_deg"])
+    cp_force_total, cp_force_components = _cp_force_integration(
+        surface_rows, adb["header"], adb["solution"]["alpha_deg"]
+    )
 
-    history_path = _autodiscover_sidecar(adb_path, history_path, ".history")
-    polar_path = _autodiscover_sidecar(adb_path, polar_path, ".polar")
-    lod_path = _autodiscover_sidecar(adb_path, lod_path, ".lod")
-    vspaero_path = _autodiscover_sidecar(adb_path, vspaero_path, ".vspaero")
-    vsp3_path = _autodiscover_sidecar(adb_path, vsp3_path, ".vsp3")
+    history_path = _resolve_sidecar(adb_path, history_path, ".history")
+    polar_path = _resolve_sidecar(adb_path, polar_path, ".polar")
+    lod_path = _resolve_sidecar(adb_path, lod_path, ".lod")
+    vspaero_path = _resolve_sidecar(adb_path, vspaero_path, ".vspaero")
+    vsp3_path = _resolve_sidecar(adb_path, vsp3_path, ".vsp3")
     history = read_history(history_path) if history_path else None
-    polar = read_polar(polar_path) if polar_path else None
-    lod = read_lod(lod_path) if lod_path else None
+    polar = _parse_whitespace_table(polar_path, ("Beta ", "Mach ", "AoA ")) if polar_path else None
+    lod = _parse_whitespace_table(lod_path, ("Iter ",)) if lod_path else None
     vspaero = read_vspaero_config(vspaero_path) if vspaero_path else None
     vsp3_meta = read_vsp3_metadata(vsp3_path) if vsp3_path else None
-    solution_diag = _solution_diagnostics(history, polar, vspaero, surface_wake_cl_relative_warning)
-    lod_diag = _lod_diagnostics(lod, lod_cl_abs_warning, lod_cmy_abs_warning, lod_symmetry_relative_warning)
 
-    cp_values = [row["cp"] for row in filtered_triangles]
+    lod_diag = _lod_diagnostics(
+        lod,
+        settings.lod_cl_abs_warning,
+        settings.lod_cmy_abs_warning,
+        settings.lod_symmetry_relative_warning,
+        settings.lod_symmetry_absolute_cl_warning,
+    )
+    _attach_lod_mesh_context(lod_diag["outliers"], extreme_source, junction_rows)
+    solution_diag = _solution_diagnostics(history, polar, vspaero, cp_force_total, settings)
+
+    cp_values = [row["cp"] for row in surface_rows]
     cp_array = np.asarray(cp_values, dtype=float) if cp_values else np.asarray([], dtype=float)
-    structural_failures = []
+    geometry_failures = []
     if mapping is not None and not mapping["passed"]:
-        structural_failures.append("vspgeom_adb_mapping")
+        geometry_failures.append("vspgeom_adb_mapping")
     if topology["same_surface_non_manifold_edges"]:
-        structural_failures.append("same_surface_non_manifold")
+        geometry_failures.append("same_surface_non_manifold")
     if not metadata_check["passed"]:
-        structural_failures.append("surface_metadata")
+        geometry_failures.append("surface_metadata")
     if kutta_result is not None and not kutta_result["passed"]:
-        structural_failures.append("kutta_wake_topology")
+        geometry_failures.append("kutta_wake_topology")
 
+    solution_advisories = list(solution_diag["advisories"])
+    if lod_diag["summary"].get("lod_outlier_count", 0):
+        solution_advisories.append("lod_outliers")
+    if lod_diag["summary"].get("lod_symmetry_warning_count", 0):
+        solution_advisories.append("lod_symmetry")
+    if spikes:
+        solution_advisories.append("local_cp_spikes")
+    if any(row["strong_mesh_advisory"] for row in extreme_cells):
+        solution_advisories.append("mesh_cp_coincident_extreme_cells")
+
+    junction_lengths = [row["edge_length"] for row in junction_rows]
+    junction_ratios = [
+        row["junction_to_local_p50_ratio"]
+        for row in junction_rows
+        if row.get("junction_to_local_p50_ratio") is not None
+    ]
     summary = {
-        "mesh_quality_tool_version": MESH_QUALITY_TOOL_VERSION,
-        "openvsp_reference_version": OPENVSP_REFERENCE_VERSION,
-        "openvsp_target_version": OPENVSP_REFERENCE_VERSION,  # v3 compatibility alias
-        "adb_version": adb["header"]["version"],
-        "solution_case": solution_case,
-        "mach": adb["solution"]["mach"],
-        "alpha_deg": adb["solution"]["alpha_deg"],
-        "beta_deg": adb["solution"]["beta_deg"],
-        "sref": adb["header"]["sref"],
-        "cref": adb["header"]["cref"],
-        "bref": adb["header"]["bref"],
-        "xcg": adb["header"]["xcg"],
-        "ycg": adb["header"]["ycg"],
-        "zcg": adb["header"]["zcg"],
-        "adb_file_name": adb_path.name,
-        "adb_sha256": _sha256(adb_path),
-        "vspgeom_file_name": Path(vspgeom_path).name if vspgeom_path else None,
-        "vspgeom_sha256": _sha256(vspgeom_path),
-        "history_file_name": history_path.name if history_path else None,
-        "history_sha256": _sha256(history_path),
-        "polar_file_name": polar_path.name if polar_path else None,
-        "polar_sha256": _sha256(polar_path),
-        "lod_file_name": lod_path.name if lod_path else None,
-        "lod_sha256": _sha256(lod_path),
-        "vspaero_file_name": vspaero_path.name if vspaero_path else None,
-        "vspaero_sha256": _sha256(vspaero_path),
-        "vsp3_file_name": vsp3_path.name if vsp3_path else None,
-        "vsp3_sha256": _sha256(vsp3_path),
-        "n_surface_triangles": len(filtered_triangles),
-        "n_ngons": len(filtered_ngons),
-        "cp_min_actual": min(cp_values) if cp_values else None,
-        "cp_max_actual": max(cp_values) if cp_values else None,
-        "cp_p001": float(np.quantile(cp_array, 0.001)) if cp_values else None,
-        "cp_p01": float(np.quantile(cp_array, 0.01)) if cp_values else None,
-        "n_local_cp_spikes": len(spikes),
-        "cp_floor_value": floor_summary["cp_floor_value"],
-        "cp_floor_plateau_size": floor_summary["cp_floor_plateau_size"],
-        "cp_floor_plateau_fraction": floor_summary["cp_floor_plateau_fraction"],
-        "cp_floor_plateau_detected": floor_summary["cp_floor_plateau_detected"],
-        "n_cp_limiter_candidates": len(plateaus),
-        "cp_floor_cpcrit_equivalent_local_mach": floor_summary["cp_floor_cpcrit_equivalent_local_mach"],
-        "n_small_angle_advisories": sum(row["warn_small_angle"] for row in filtered_triangles),
-        "n_small_angle_warnings": sum(row["warn_small_angle"] for row in filtered_triangles),  # v3 compatibility alias
-        "small_angle_advisory_deg": small_angle_advisory_deg,
-        "n_extreme_mesh_cells": len(extreme_cells),
-        "n_strong_mesh_advisories": sum(bool(r["strong_mesh_advisory"]) for r in extreme_cells),
-        "extreme_angle_deg": extreme_angle_deg,
-        "extreme_area_ratio": extreme_area_ratio,
-        "extreme_edge_ratio": extreme_edge_ratio,
-        "edge_multiplicity_gt2_count": len(topology["edge_multiplicity_gt2"]),
-        "same_surface_non_manifold_edge_count": len(topology["same_surface_non_manifold_edges"]),
-        "cross_surface_junction_edge_count": len(topology["cross_surface_junction_edges"]),
-        "surface_metadata_checks_passed": metadata_check["passed"],
-        "surface_metadata_missing_count": len(metadata_check["missing_surface_ids"]),
-        "surface_metadata_missing_surface_ids": metadata_check["missing_surface_ids"],
-        "surface_component_mismatch_count": len(metadata_check["component_mismatches"]),
-        "surface_component_mismatches": metadata_check["component_mismatches"],
-        "surface_metadata": surface_metadata_rows,
-        "component_metadata": component_metadata_rows,
-        "mapping_checks_passed": mapping["passed"] if mapping is not None else None,
-        "mapping_mismatch_count": len(mapping["mismatches"]) if mapping is not None else None,
-        "adb_trailing_vortex_edge_count": len(adb["solution"]["trailing_vortex_edges"]),
-        "vspgeom_kutta_list_count": len(vspgeom["kutta_lists"]) if vspgeom else None,
-        "vspgeom_kutta_node_count": sum(len(x["node_ids"]) for x in vspgeom["kutta_lists"]) if vspgeom else None,
-        "kutta_checks_passed": kutta_result["passed"] if kutta_result else None,
-        "kutta_coverage_failure_count": len(kutta_result["coverage_failures"]) if kutta_result else None,
-        "kutta_symmetry_failure_count": len(kutta_result["symmetry_failures"]) if kutta_result else None,
-        "kutta_unresolved_lifting_line_count": len(kutta_result["unresolved"]) if kutta_result else None,
-        "kutta_te_param_near_miss_edge_count": len(kutta_result["near_miss_edges"]) if kutta_result else None,
-        "kutta_te_param_near_miss_on_failed_surface_count": sum(not bool(x.get("surface_kutta_coverage_passed")) for x in kutta_result["near_miss_edges"] if x.get("surface_kutta_coverage_passed") is not None) if kutta_result else None,
-        "kutta_surface_summary": kutta_result["surfaces"] if kutta_result else [],
-        "cp_force_integral": cp_force_total,
-        "structural_checks_passed": not structural_failures,
-        "structural_failure_categories": structural_failures,
+        "provenance": {
+            "mesh_quality_tool_version": MESH_QUALITY_TOOL_VERSION,
+            "reference_implementation_version": OPENVSP_REFERENCE_VERSION,
+            "runtime_openvsp_version": runtime_openvsp_version,
+            "adb_file": {"name": adb_path.name, "sha256": _sha256(adb_path), "format_version": adb["header"]["version"]},
+            "vspgeom_file": {"name": Path(vspgeom_path).name, "sha256": _sha256(vspgeom_path)} if vspgeom_path else None,
+            "history_file": {"name": history_path.name, "sha256": _sha256(history_path)} if history_path else None,
+            "polar_file": {"name": polar_path.name, "sha256": _sha256(polar_path)} if polar_path else None,
+            "lod_file": {"name": lod_path.name, "sha256": _sha256(lod_path)} if lod_path else None,
+            "vspaero_file": {"name": vspaero_path.name, "sha256": _sha256(vspaero_path)} if vspaero_path else None,
+            "vsp3_file": {"name": vsp3_path.name, "sha256": _sha256(vsp3_path)} if vsp3_path else None,
+        },
+        "condition": {
+            "solution_case": solution_case,
+            "mach": adb["solution"]["mach"],
+            "alpha_deg": adb["solution"]["alpha_deg"],
+            "beta_deg": adb["solution"]["beta_deg"],
+            "sref": adb["header"]["sref"],
+            "cref": adb["header"]["cref"],
+            "bref": adb["header"]["bref"],
+            "xcg": adb["header"]["xcg"],
+            "ycg": adb["header"]["ycg"],
+            "zcg": adb["header"]["zcg"],
+        },
+        "mesh": {
+            "surface_triangle_count": len(surface_rows),
+            "ngon_count": len(ngon_rows),
+            "surface_edge_count": len(mesh_edge_rows),
+            "small_angle_advisory_count": sum(row["warn_small_angle"] for row in surface_rows),
+            "extreme_cell_count": len(extreme_cells),
+            "strong_mesh_advisory_count": sum(bool(row["strong_mesh_advisory"]) for row in extreme_cells),
+            "surface_edge_sizes": mesh_surface_size_rows,
+            "junction_edge_count": len(junction_rows),
+            "junction_edge_length": _length_statistics(junction_lengths),
+            "junction_to_local_p50_ratio": _length_statistics(junction_ratios),
+        },
+        "cp": {
+            "min_actual": min(cp_values) if cp_values else None,
+            "max_actual": max(cp_values) if cp_values else None,
+            "p001": float(np.quantile(cp_array, 0.001)) if cp_values else None,
+            "p01": float(np.quantile(cp_array, 0.01)) if cp_values else None,
+            "local_spike_count": len(spikes),
+            "floor_value": floor_summary["cp_floor_value"],
+            "floor_plateau_size": floor_summary["cp_floor_plateau_size"],
+            "floor_plateau_fraction": floor_summary["cp_floor_plateau_fraction"],
+            "floor_plateau_detected": floor_summary["cp_floor_plateau_detected"],
+            "limiter_candidate_count": len(plateaus),
+            "floor_cpcrit_equivalent_local_mach": floor_summary["cp_floor_cpcrit_equivalent_local_mach"],
+            "force_integral": cp_force_total,
+        },
+        "topology": {
+            "boundary_edge_count": topology["boundary_edge_count"],
+            "edge_multiplicity_gt2_count": len(topology["edge_multiplicity_gt2"]),
+            "same_surface_non_manifold_edge_count": len(topology["same_surface_non_manifold_edges"]),
+            "cross_surface_junction_edge_count": len(topology["cross_surface_junction_edges"]),
+            "surface_metadata_checks_passed": metadata_check["passed"],
+            "mapping_checks_passed": mapping["passed"] if mapping is not None else None,
+            "mapping_mismatch_count": len(mapping["mismatches"]) if mapping is not None else None,
+        },
+        "kutta": {
+            "available": kutta_result is not None,
+            "checks_passed": kutta_result["passed"] if kutta_result else None,
+            "coverage_failure_count": len(kutta_result["coverage_failures"]) if kutta_result else None,
+            "symmetry_failure_count": len(kutta_result["symmetry_failures"]) if kutta_result else None,
+            "unresolved_lifting_line_count": len(kutta_result["unresolved"]) if kutta_result else None,
+            "te_param_near_miss_edge_count": len(kutta_result["near_miss_edges"]) if kutta_result else None,
+            "surface_summary": kutta_result["surfaces"] if kutta_result else [],
+        },
+        "solution": solution_diag["summary"],
+        "lod": lod_diag["summary"],
+        "checks": {
+            "geometry_topology_checks_passed": not geometry_failures,
+            "geometry_topology_failure_categories": geometry_failures,
+            "solution_review_required": bool(solution_advisories),
+            "solution_advisories": list(dict.fromkeys(solution_advisories)),
+        },
+        "settings": asdict(settings),
+        "model": {
+            "surface_metadata": surface_metadata_rows,
+            "component_metadata": component_metadata_rows,
+            "vsp3_metadata": vsp3_meta,
+            "vspaero_settings": vspaero["values"] if vspaero else None,
+        },
         "note": (
-            "Threshold-based Cp, small-angle, extreme-cell, LOD and surface-vs-wake flags are diagnostic advisories, "
-            "not OpenVSP validity limits. Cross-surface junction edges are not a failure by count alone. "
-            "Mapping, same-surface non-manifold and incomplete Kutta/wake topology are treated as structural failures."
+            "Threshold-based Cp, mesh, LOD and surface-vs-wake flags are diagnostic advisories, "
+            "not OpenVSP validity limits. Cross-surface junction edges are evaluated by physical "
+            "edge size and local size ratio rather than by count alone."
         ),
-        **solution_diag["summary"],
-        **lod_diag["summary"],
     }
-    if vspaero:
-        summary["vspaero_settings"] = vspaero["values"]
-    if vsp3_meta:
-        summary["vsp3_metadata"] = vsp3_meta
 
     result = {
         "summary": summary,
-        "triangles": filtered_triangles,
-        "ngons": filtered_ngons,
+        "triangles": surface_rows,
+        "ngons": ngon_rows,
+        "mesh_edges": mesh_edge_rows,
+        "mesh_surface_sizes": mesh_surface_size_rows,
         "spikes": spikes,
         "plateaus": plateaus,
         "extreme_cells": extreme_cells,
@@ -1793,7 +2185,14 @@ def analyze_vspaero_mesh_quality(
         "mapping": mapping,
         "topology": topology,
         "kutta": kutta_result,
+        "cp_force_total": cp_force_total,
         "cp_force_components": cp_force_components,
+        "surface_metadata": surface_metadata_rows,
+        "component_metadata": component_metadata_rows,
+        "adb_trailing_vortex_edges": [
+            {key: value for key, value in row.items() if key != "points"}
+            for row in adb["solution"]["trailing_vortex_edges"]
+        ],
         "history": history,
         "polar": polar,
         "lod": lod,
@@ -1801,40 +2200,12 @@ def analyze_vspaero_mesh_quality(
         "lod_symmetry": lod_diag["symmetry"],
         "solution": solution_diag,
     }
-
     if output_dir is not None:
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        _write_csv(output_dir / "mesh_quality_triangles.csv", filtered_triangles)
-        _write_csv(output_dir / "mesh_quality_ngons.csv", filtered_ngons)
-        _write_csv(output_dir / "cp_spikes.csv", spikes, list(spikes[0].keys()) if spikes else ["ngon_id", "triangle_id", "cp", "nearest_kutta_distance", "nearest_kutta_endpoint_distance", "nearest_kutta_list_id"])
-        _write_csv(output_dir / "cp_plateaus.csv", plateaus, list(plateaus[0].keys()) if plateaus else ["ngon_id", "triangle_id", "cp", "cp_floor_plateau_size", "nearest_kutta_distance", "nearest_kutta_endpoint_distance", "nearest_kutta_list_id"])
-        _write_csv(output_dir / "mesh_quality_surfaces.csv", surface_metadata_rows, ["surface_id", "surface_name", "component_id"])
-        _write_csv(output_dir / "mesh_quality_components.csv", component_metadata_rows, ["component_id", "n_surfaces", "surface_ids", "surface_names"])
-        _write_csv(output_dir / "mesh_extreme_cells.csv", extreme_cells)
-        _write_csv(output_dir / "junction_quality.csv", junction_rows)
-        _write_csv(output_dir / "cp_force_components.csv", cp_force_components + [cp_force_total])
-        _write_csv(output_dir / "adb_trailing_vortex_edges.csv", [{k: v for k, v in x.items() if k != "points"} for x in adb["solution"]["trailing_vortex_edges"]])
-        if kutta_result:
-            _write_csv(output_dir / "kutta_lines.csv", kutta_result["lines"], list(kutta_result["lines"][0].keys()) if kutta_result["lines"] else ["kutta_list_id", "body_wake", "wake_part_num", "n_nodes", "surface_id", "surface_name", "component_id", "outer_coverage_fraction"])
-            _write_csv(output_dir / "kutta_nodes.csv", kutta_result["nodes"], list(kutta_result["nodes"][0].keys()) if kutta_result["nodes"] else ["kutta_list_id", "sequence_index", "node_id", "surface_id", "surface_name", "x", "y", "z"])
-            _write_csv(output_dir / "kutta_surfaces.csv", kutta_result["surfaces"], list(kutta_result["surfaces"][0].keys()) if kutta_result["surfaces"] else ["surface_id", "surface_name", "component_id", "n_kutta_lists", "n_kutta_nodes", "kutta_outer_coverage_fraction", "kutta_coverage_passed"])
-            _write_csv(output_dir / "kutta_symmetry.csv", kutta_result["symmetry"], list(kutta_result["symmetry"][0].keys()) if kutta_result["symmetry"] else ["component_id", "surface_name", "positive_surface_id", "negative_surface_id", "passed"])
-            _write_csv(output_dir / "kutta_te_near_miss_edges.csv", kutta_result["near_miss_edges"], list(kutta_result["near_miss_edges"][0].keys()) if kutta_result["near_miss_edges"] else ["surface_id", "surface_name", "node1", "node2", "param_w_offset_max", "surface_kutta_coverage_passed"])
-        else:
-            for name in ("kutta_lines.csv", "kutta_nodes.csv", "kutta_surfaces.csv", "kutta_symmetry.csv", "kutta_te_near_miss_edges.csv"):
-                _write_csv(output_dir / name, [], ["unavailable"])
-        _write_csv(output_dir / "solution_history.csv", history["rows"] if history else [], history["header"] if history else ["unavailable"])
-        _write_csv(output_dir / "solution_polar.csv", polar["rows"] if polar else [], polar["header"] if polar else ["unavailable"])
-        _write_csv(output_dir / "lod_loads.csv", lod["rows"] if lod else [], lod["header"] if lod else ["unavailable"])
-        _write_csv(output_dir / "lod_outliers.csv", lod_diag["outliers"], list(lod_diag["outliers"][0].keys()) if lod_diag["outliers"] else ["Iter", "VortexSheet", "TrailVort", "Xavg", "Yavg", "Zavg", "Cl", "Cmy", "warn_abs_cl", "warn_abs_cmy"])
-        _write_csv(output_dir / "lod_symmetry.csv", lod_diag["symmetry"], list(lod_diag["symmetry"][0].keys()) if lod_diag["symmetry"] else ["positive_row_index", "negative_row_index", "Cl_relative_difference", "passed"])
-        with (output_dir / "mesh_quality_summary.json").open("w", encoding="utf-8") as fp:
-            json.dump(_json_value(summary), fp, ensure_ascii=False, indent=2)
+        _write_report_files(Path(output_dir), result)
     return result
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="VSPAERO mesh/Cp/Kutta/solution verification diagnostics (v4).")
+    p = argparse.ArgumentParser(description="VSPAERO mesh/Cp/Kutta/solution verification diagnostics (v5).")
     p.add_argument("adb", type=Path)
     p.add_argument("--vspgeom", type=Path)
     p.add_argument("--output-dir", type=Path, required=True)

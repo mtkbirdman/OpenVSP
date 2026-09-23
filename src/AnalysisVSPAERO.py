@@ -29,7 +29,10 @@ def vsp_sweep(
     *,
     ncpu=None,
     wake_num_iter=None,
+    wake_num_nodes=None,
     fixed_wake_flag=None,
+    thick_geom_set=None,
+    thin_geom_set=None,
 ):
     """Run an OpenVSP VSPAERO angle-of-attack and Mach-number sweep.
 
@@ -53,10 +56,21 @@ def vsp_sweep(
     wake_num_iter : int or None, optional
         Value assigned to ``VSPAEROSweep/WakeNumIter``. Valid explicit values
         are 3 through 255. ``None`` leaves the OpenVSP default unchanged.
+    wake_num_nodes : int or None, optional
+        Value assigned to ``VSPAEROSweep/NumWakeNodes``. ``None`` leaves the
+        OpenVSP default unchanged.
     fixed_wake_flag : bool or None, optional
         Value assigned to ``VSPAEROSweep/FixedWakeFlag``. When enabled, the
         fixed-wake setting takes precedence over ``wake_num_iter``. ``None``
         leaves the OpenVSP default unchanged.
+    thick_geom_set : int or None, optional
+        Thick-geometry set index used by both ``VSPAEROComputeGeometry`` and
+        ``VSPAEROSweep``. ``None`` preserves the selection saved in the loaded
+        model. Pass ``vsp.SET_NONE`` to request no thick geometry explicitly.
+    thin_geom_set : int or None, optional
+        Thin-geometry set index used by both ``VSPAEROComputeGeometry`` and
+        ``VSPAEROSweep``. ``None`` preserves the selection saved in the loaded
+        model. Pass ``vsp.SET_NONE`` to request no thin geometry explicitly.
 
     Returns
     -------
@@ -66,8 +80,8 @@ def vsp_sweep(
     Raises
     ------
     ValueError
-        If ``ncpu`` is less than one or ``wake_num_iter`` is outside the
-        supported range 3 through 255.
+        If ``ncpu`` is less than one, ``wake_num_iter`` is outside the
+        supported range 3 through 255, or ``wake_num_nodes`` is negative.
     RuntimeError
         If the current OpenVSP build does not expose an explicitly requested
         execution-setting input.
@@ -81,9 +95,37 @@ def vsp_sweep(
         print('\n-> Calculate alpha & mach sweep analysis\n')
 
     # //==== Analysis: VSPAero Compute Geometry to Create Vortex Lattice DegenGeom File ====//
-    # Set defaults
+    # Use the thick/thin selection saved in the loaded model unless the caller
+    # explicitly overrides it.  ComputeGeometry and Sweep always receive the
+    # same effective selection.
     compgeom_name = 'VSPAEROComputeGeometry'
     vsp.SetAnalysisInputDefaults(compgeom_name)
+    compgeom_inputs = set(vsp.GetAnalysisInputNames(compgeom_name))
+    if 'GeomSet' not in compgeom_inputs:
+        raise RuntimeError(
+            "VSPAEROComputeGeometry does not expose the 'GeomSet' input."
+        )
+
+    saved_thick_set = int(vsp.GetIntAnalysisInput(compgeom_name, 'GeomSet')[0])
+    saved_thin_set = (
+        int(vsp.GetIntAnalysisInput(compgeom_name, 'ThinGeomSet')[0])
+        if 'ThinGeomSet' in compgeom_inputs
+        else None
+    )
+    if thin_geom_set is not None and 'ThinGeomSet' not in compgeom_inputs:
+        raise RuntimeError(
+            "VSPAEROComputeGeometry does not expose the 'ThinGeomSet' input."
+        )
+
+    thick_set = saved_thick_set if thick_geom_set is None else int(thick_geom_set)
+    thin_set = saved_thin_set if thin_geom_set is None else int(thin_geom_set)
+    set_none = int(getattr(vsp, 'SET_NONE', -1))
+    if thick_set == set_none and (thin_set is None or thin_set == set_none):
+        raise RuntimeError('The requested VSPAERO settings select no geometry.')
+
+    vsp.SetIntAnalysisInput(compgeom_name, 'GeomSet', [thick_set], 0)
+    if thin_set is not None:
+        vsp.SetIntAnalysisInput(compgeom_name, 'ThinGeomSet', [thin_set], 0)
 
     # List inputs, type, and current values
     if verbose:
@@ -134,6 +176,21 @@ def vsp_sweep(
             0,
         )
 
+    if wake_num_nodes is not None:
+        wake_num_nodes = int(wake_num_nodes)
+        if wake_num_nodes < 0:
+            raise ValueError('wake_num_nodes must be zero or greater.')
+        if 'NumWakeNodes' not in analysis_inputs:
+            raise RuntimeError(
+                "VSPAEROSweep does not expose the 'NumWakeNodes' input."
+            )
+        vsp.SetIntAnalysisInput(
+            analysis_name,
+            'NumWakeNodes',
+            [wake_num_nodes],
+            0,
+        )
+
     if fixed_wake_flag is not None:
         if 'FixedWakeFlag' not in analysis_inputs:
             raise RuntimeError(
@@ -146,6 +203,19 @@ def vsp_sweep(
             0,
         )
 
+    # Keep the sweep on the exact same effective thick/thin selection used to
+    # generate the VSPAERO geometry.  Reference dimensions and reference-wing
+    # choice remain the values saved in the model.
+    set_analysis_input_if_available(
+        vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput,
+        'GeomSet', [thick_set],
+    )
+    if thin_set is not None:
+        set_analysis_input_if_available(
+            vsp, analysis_name, analysis_inputs, vsp.SetIntAnalysisInput,
+            'ThinGeomSet', [thin_set],
+        )
+
     effective_ncpu = (
         int(vsp.GetIntAnalysisInput(analysis_name, 'NCPU')[0])
         if 'NCPU' in analysis_inputs
@@ -154,6 +224,11 @@ def vsp_sweep(
     effective_wake_num_iter = (
         int(vsp.GetIntAnalysisInput(analysis_name, 'WakeNumIter')[0])
         if 'WakeNumIter' in analysis_inputs
+        else None
+    )
+    effective_wake_num_nodes = (
+        int(vsp.GetIntAnalysisInput(analysis_name, 'NumWakeNodes')[0])
+        if 'NumWakeNodes' in analysis_inputs
         else None
     )
     effective_fixed_wake_flag = (
@@ -177,16 +252,9 @@ def vsp_sweep(
             ' VSPAERO run : '
             f'NCPU={effective_ncpu}, '
             f'WakeNumIter={effective_wake_num_iter}, '
+            f'NumWakeNodes={effective_wake_num_nodes}, '
             f'FixedWakeFlag={effective_fixed_wake_flag}'
         )
-
-    # Reference geometry set
-    geom_set = [0]
-    vsp.SetIntAnalysisInput(analysis_name, 'GeomSet', geom_set, 0)
-    ref_flag = [1]
-    vsp.SetIntAnalysisInput(analysis_name, 'RefFlag', ref_flag, 0)
-    wid = vsp.FindGeomsWithName('WingGeom')
-    vsp.SetStringAnalysisInput(analysis_name, 'WingID', wid, 0)
 
     # Freestream Parameters
     alpha_npts = [len(alpha)]
