@@ -10,6 +10,7 @@ from .util import (
     analysis_duration_seconds,
     get_container_parm_value,
     find_one_geom,
+    find_vspaero_settings_container,
     results_dataframe,
     set_analysis_input_if_available,
     suppress_stdout,
@@ -687,7 +688,6 @@ def _trim_elevator_at_fixed_alpha(
         f'  sampled elevator_deg:CMytot = {sampled}'
     )
 
-
 def vsp_trimmed_sweep(
     vsp,
     alpha_list,
@@ -765,7 +765,8 @@ def vsp_trimmed_sweep(
         If input sequences, VSPAERO reference values, or numerical trim
         settings are invalid.
     RuntimeError
-        If the required reference wing or elevator group is unavailable, an
+        If the required reference wing or elevator group is unavailable,
+        ``ELEVATOR_GROUP`` is disabled in ``Control Group Angles``, an
         OpenVSP analysis fails, or a trim root cannot be obtained.
 
     Notes
@@ -792,7 +793,7 @@ def vsp_trimmed_sweep(
     # changed; the control-surface group and gains are not rebuilt.
     vsp.Update()
     wing_id = find_one_geom(vsp, DEFAULT_REF_GEOM_NAME)
-    settings_id = vsp.FindContainer('VSPAEROSettings', 0)
+    settings_id = find_vspaero_settings_container(vsp)
     elevator_group_names = [
         vsp.GetVSPAEROControlGroupName(group_index)
         for group_index in range(vsp.GetNumControlSurfaceGroups())
@@ -811,10 +812,32 @@ def vsp_trimmed_sweep(
     if not list(vsp.GetActiveCSNameVec(elevator_group_index)):
         raise RuntimeError("'ELEVATOR_GROUP' has no active control surfaces.")
 
+    elevator_group_parm_group = (
+        f'ControlSurfaceGroup_{elevator_group_index}'
+    )
+    elevator_active_parm_id = vsp.FindParm(
+        settings_id,
+        'ActiveFlag',
+        elevator_group_parm_group,
+    )
+    if (
+        not elevator_active_parm_id
+        or str(elevator_active_parm_id).upper() == 'NONE'
+    ):
+        raise RuntimeError(
+            "Could not find 'ActiveFlag' for the existing "
+            "'ELEVATOR_GROUP'."
+        )
+    if not bool(vsp.GetParmVal(elevator_active_parm_id)):
+        raise RuntimeError(
+            "'ELEVATOR_GROUP' is disabled in VSPAERO "
+            "'Control Group Angles'. Enable it before running pitch trim."
+        )
+
     elevator_parm_id = vsp.FindParm(
         settings_id,
         'DeflectionAngle',
-        f'ControlSurfaceGroup_{elevator_group_index}',
+        elevator_group_parm_group,
     )
     if not elevator_parm_id or str(elevator_parm_id).upper() == 'NONE':
         raise RuntimeError(
@@ -1890,7 +1913,7 @@ def vsp_sweep_wig(
     vsp3_path = vsp.GetVSPFileName()
     openvsp_version = vsp.GetVSPVersion()
 
-    settings_id = vsp.FindContainer('VSPAEROSettings', 0)
+    settings_id = find_vspaero_settings_container(vsp)
     settings = {}
     if settings_id:
         for name in (
@@ -2643,7 +2666,7 @@ def validate_vsp3_for_stability_derivatives(vsp3_path, *, verbose=1):
     # stability calculation.  The actual geometry/control naming is not part of
     # analysis readiness.
     vprint(1, ' Checking VSPAERO reference settings...')
-    settings_id = vsp.FindContainer('VSPAEROSettings', 0)
+    settings_id = find_vspaero_settings_container(vsp)
     settings_summary = {
         'container_id': settings_id,
         'Sref': None,

@@ -71,6 +71,52 @@ def find_container_parm(vsp, container_id: str, parm_name: str) -> str:
             return parm_id
     return ""
 
+def find_vspaero_settings_container(vsp) -> str:
+    """Return the VSPAERO settings ParmContainer ID independent of its saved name.
+
+    Current OpenVSP models normally name this ParmContainer ``VSPAEROSettings``,
+    but some valid legacy/external .vsp3 files save the same container as
+    ``Default``.  ``FindContainer`` searches the ParmContainer *name*, so a
+    name-only lookup incorrectly reports that those models have no VSPAERO
+    settings.  Fall back to identifying the unique container by the core
+    VSPAERO parameter set it owns.
+    """
+
+    settings_id = vsp.FindContainer("VSPAEROSettings", 0)
+    if settings_id:
+        return settings_id
+
+    required_parm_names = {
+        "GeomSet",
+        "ThinGeomSet",
+        "Sref",
+        "bref",
+        "cref",
+        "Xcg",
+        "Ycg",
+        "Zcg",
+    }
+    candidates = []
+    for container_id in vsp.FindContainers():
+        try:
+            parm_names = {
+                str(vsp.GetParmName(parm_id))
+                for parm_id in vsp.FindContainerParmIDs(container_id)
+            }
+        except Exception:
+            continue
+        if required_parm_names.issubset(parm_names):
+            candidates.append(str(container_id))
+
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise RuntimeError(
+            "Multiple ParmContainers expose the core VSPAERO settings; "
+            f"candidates={candidates}"
+        )
+    return ""
+
 def get_container_parm_value(vsp, container_id: str, parm_name: str) -> tuple[float | None, str]:
     parm_id = find_container_parm(vsp, container_id, parm_name)
     if not parm_id:
@@ -219,7 +265,7 @@ def set_control_surface(vsp, geom_name, deflection, cs_group_name, sub_id=0, gai
 
     geom_id = vsp.FindGeomsWithName(geom_name)[0]
     group_name = "ControlSurfaceGroup_" + str(group_index)
-    cs_group_container_id = vsp.FindContainer("VSPAEROSettings", 0)
+    cs_group_container_id = find_vspaero_settings_container(vsp)
     for i, gain in enumerate(gains):
         parm_name = "Surf_" + vsp.GetSubSurf(geom_id, sub_id) + "_" + str(i) + "_Gain"
         parm_id = find_container_parm(vsp, cs_group_container_id, parm_name)

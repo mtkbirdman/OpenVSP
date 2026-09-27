@@ -12,7 +12,34 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.AnalysisVSPAERO import vsp_trimmed_sweep
 
-MODEL_PATH = REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
+MODEL_PATH = (
+    REPO_ROOT
+    / "examples"
+    / "notebooks"
+    / "trimmed_polar"
+    / "G103A.vsp3"
+)
+DISABLED_ELEVATOR_MODEL_PATH = (
+    REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
+)
+
+
+def test_trimmed_polar_rejects_disabled_elevator_group():
+    vsp.ClearVSPModel()
+    vsp.Update()
+    vsp.ReadVSPFile(str(DISABLED_ELEVATOR_MODEL_PATH))
+    vsp.Update()
+
+    with pytest.raises(
+        RuntimeError,
+        match="ELEVATOR_GROUP.*disabled.*Control Group Angles",
+    ):
+        vsp_trimmed_sweep(
+            vsp=vsp,
+            alpha_list=[0.0],
+            Weight=580,
+            verbose=0,
+        )
 
 
 def test_trimmed_polar_converges_pitch_moment_and_restores_elevator():
@@ -30,10 +57,22 @@ def test_trimmed_polar_converges_pitch_moment_and_restores_elevator():
     assert len(vsp.GetActiveCSNameVec(elevator_group_index)) == 2
 
     settings_id = vsp.FindContainer("VSPAEROSettings", 0)
+    elevator_group_parm_group = (
+        f"ControlSurfaceGroup_{elevator_group_index}"
+    )
+    elevator_active_parm_id = vsp.FindParm(
+        settings_id,
+        "ActiveFlag",
+        elevator_group_parm_group,
+    )
+    assert elevator_active_parm_id
+    assert str(elevator_active_parm_id).upper() != "NONE"
+    assert bool(vsp.GetParmVal(elevator_active_parm_id))
+
     elevator_parm_id = vsp.FindParm(
         settings_id,
         "DeflectionAngle",
-        f"ControlSurfaceGroup_{elevator_group_index}",
+        elevator_group_parm_group,
     )
     assert elevator_parm_id and str(elevator_parm_id).upper() != "NONE"
     original_elevator_deg = float(vsp.GetParmVal(elevator_parm_id))

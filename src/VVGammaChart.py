@@ -50,6 +50,7 @@ from .util import (
     X_LOCATION_NAMES,
     get_container_parm_value,
     find_one_geom,
+    find_vspaero_settings_container,
     get_geom_parm_value,
     get_xsec_value,
     import_openvsp,
@@ -348,7 +349,7 @@ def read_aircraft_geometry_summary(
     vtail["span"] = get_geom_parm_value(
         vsp, vtail_id, ("TotalSpan", "Total_Span", "Span"), ("WingGeom",), default=vtail["span"]
     )
-    settings_id = vsp.FindContainer("VSPAEROSettings", 0)
+    settings_id = find_vspaero_settings_container(vsp)
     if not settings_id:
         raise ValueError("The VSPAEROSettings container was not found.")
         

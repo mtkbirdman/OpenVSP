@@ -48,8 +48,9 @@ OpenVSP model (.vsp3)
 - 垂直尾翼容積比 `Vv` と翼端たわみ量を変化させた VSPAERO stability sweep
 - `Vv–Gamma_eff` 設計チャートの後処理・描画
 - wake iteration / wake node 数の収束確認
-- VSPAERO `.adb` / `.vspgeom` を用いたパネル品質・`Cp` spike 診断
-- `ThinWing / ThickWing / Hybrid / ThickAll` をユーザー指定した VSPAERO mesh-convergence optimization
+- reference Wing の実3次元 edge size を基準にした VSPAERO surface mesh equalization
+- `.vsp3` モデルの複数方向スクリーンショット撮影と PNG グリッド合成
+- 複数 `.vsp3` の連続撮影と GIF / MP4 アニメーション作成
 
 ## 必要な環境
 
@@ -77,7 +78,7 @@ print(vsp.GetVSPVersion())
 OpenVSP Python API に加えて、解析内容に応じて次の package を使用します。
 
 ```bash
-python -m pip install numpy pandas scipy matplotlib jupyter
+python -m pip install numpy pandas scipy matplotlib pillow imageio-ffmpeg jupyter
 ```
 
 主な依存関係は次のとおりです。
@@ -86,6 +87,8 @@ python -m pip install numpy pandas scipy matplotlib jupyter
 - pandas
 - SciPy
 - Matplotlib
+- Pillow（OpenVSP スクリーンショットの回転・合成）
+- imageio-ffmpeg（GIF / MP4 のエンコード）
 - Jupyter（Notebook を使用する場合）
 
 ## Quick start
@@ -108,8 +111,6 @@ python -m pytest
 現在、次の test があります。
 
 ```text
-tests/test_vspaero_mesh_quality.py
-tests/test_vspaero_mesh_optimizer.py
 tests/test_vspaero_mesh.py
 tests/test_turn_trim.py
 tests/test_sweep.py
@@ -117,16 +118,23 @@ tests/test_control_surface.py
 tests/test_ground_effect.py
 tests/test_trimmed_polar.py
 tests/test_stability_derivatives.py
+tests/test_openvsp_view_capture.py
 ```
 
-`test_vspaero_mesh_quality.py`、`test_vspaero_mesh_optimizer.py`、`test_turn_trim.py` は OpenVSP を実行せずに検証できます。`test_turn_trim.py` は同梱されている `SampleGlider.stab` を使い、定常滑空旋回、定常高度維持・ラダーのみ旋回、ラダー限界旋回について、力・モーメント残差、無推力条件、高度維持条件、ラダー限界の選択処理を assertion で確認します。
+`test_vspaero_mesh.py` の入力 validation、`test_turn_trim.py`、`test_openvsp_view_capture.py` の通常テストは OpenVSP を実行せずに検証できます。`test_turn_trim.py` は同梱されている `SampleGlider.stab` を使い、定常滑空旋回、定常高度維持・ラダーのみ旋回、ラダー限界旋回について、力・モーメント残差、無推力条件、高度維持条件、ラダー限界の選択処理を assertion で確認します。
 
-残りは OpenVSP / VSPAERO integration test です。単に解析が終了することだけでなく、sweep の入力と出力の対応、aileron による rolling moment の反転、ground effect による induced drag の低下、pitch trim 後の `CMytot ≈ 0`、stability-derivative preflight と出力データの有限性などを確認します。OpenVSP Python API が import できない環境では、これらの test は pytest 上で skip されます。
+`test_vspaero_mesh.py` の実 mesh equalization を含む残りのケースは OpenVSP / VSPAERO integration test です。単に解析が終了することだけでなく、sweep の入力と出力の対応、aileron による rolling moment の反転、ground effect による induced drag の低下、pitch trim 後の `CMytot ≈ 0`、stability-derivative preflight と出力データの有限性などを確認します。OpenVSP Python API が import できない環境では、これらの test は pytest 上で skip されます。
 
 `STABILITY_ADJOINT` の実計算は非常に時間がかかる場合があるため `slow` marker を付け、通常の `python -m pytest` から除外しています。必要な場合だけ次のように実行します。
 
 ```bash
 python -m pytest -m slow tests/test_stability_derivatives.py
+```
+
+スクリーンショットの実 GUI 結合テストは、画面を開ける環境で明示的に有効化します。
+
+```bash
+RUN_OPENVSP_GUI_TESTS=1 python -m pytest -m slow tests/test_openvsp_view_capture.py
 ```
 
 `examples/scripts/` に置かれていた手動確認 script はすべて pytest 化したため、同ディレクトリは廃止しました。
@@ -146,12 +154,65 @@ python -m pytest -m slow tests/test_stability_derivatives.py
 | `vv_gamma_chart/plot_vv_gamma_chart.ipynb` | `Vv–Gamma_eff` chart の後処理・描画 |
 | `wake_convergence/run_wake_convergence.ipynb` | WakeNumIter / NumWakeNodes の収束計算 |
 | `wake_convergence/plot_wake_convergence.ipynb` | wake convergence 結果の可視化 |
-| `mesh_quality/example_mesh_quality.ipynb` | `.adb` / `.vspgeom` のパネル品質・`Cp` spike 診断 |
-| `mesh_optimization/run_mesh_optimization.ipynb` | representation を指定した W→U mesh convergence search |
-| `mesh_rule_dataset/run_mesh_rule_dataset.ipynb` | 全mesh自由度を対象にした append-only calibration dataset 生成 |
-| `mesh_parameter_sweep/run_mesh_parameter_sweep.ipynb` | 4 representation を横断する manual mesh V&V / DOE |
+| `mesh_equalization/run_mesh_equalization.ipynb` | reference Wing の実3次元 edge size を基準にした surface mesh equalization |
+| `view_capture/example_view_capture.ipynb` | G103A の上面・左側面・正面・鳥瞰図を1枚の PNG に合成 |
+| `view_capture/example_view_animation.ipynb` | 複数 `.vsp3` を同じ視点で連続撮影し、MP4 / GIF を作成 |
 
 Notebook は、基本的にリポジトリ内の `src/` と `examples/models/` を利用する構成です。
+
+### OpenVSP view capture
+
+`src/OpenVSPViewCapture.py` の `capture_vsp3_views()` は、GUI 対応版 OpenVSP
+を専用の子プロセスで起動し、指定した標準ビューを個別に PNG 撮影してから
+1枚に合成します。子プロセス内で `openvsp_config.LOAD_GRAPHICS` と
+`LOAD_FACADE` を `openvsp` の import より前に設定するため、既存の Jupyter
+カーネルにある OpenVSP のモデル状態を変更しません。撮影中は GUI が表示され、
+撮影終了時に自動的に閉じます。
+
+```python
+from src.OpenVSPViewCapture import capture_vsp3_views
+
+capture_vsp3_views(
+    "examples/models/G103A/G103A.vsp3",
+    "G103A_four_views.png",
+    size=(1600, 1200),
+    render_mode="hidden",
+)
+```
+
+既定配置は、左上が機首下向きの上面図、右上が機首下向きの左側面図、
+左下が正面図、右下が左鳥瞰図です。OpenVSP の `ScreenGrab` が対応する
+保存形式に合わせ、出力は PNG のみに制限しています。`render_mode` は
+`preserve`、`wire`、`hidden`、`shade`、`texture` から選べます。`preserve`
+以外を指定しても、モデル内で非表示の Geom は非表示のままです。
+レンダーモードの変更には OpenVSP 3.50 系にも存在する `SET_SHOWN` を使用します。
+各パネルの撮影前に OpenVSP のビューポート寸法を出力寸法へ合わせるため、
+3.50 系の `ScreenGrab` でも縦横比を保ちます。90度回転するビューは撮影時点で
+幅と高さを入れ替え、回転後に再拡大・再縮小しません。
+
+複数モデルでは `create_vsp3_animation()` に順序付きのパスを渡します。
+同じパスの重複もそのまま1フレームとして扱います。出力拡張子が `.gif`
+なら GIF、`.mp4` なら H.264 MP4 を作成します。
+
+```python
+from src.OpenVSPViewCapture import create_vsp3_animation
+
+result = create_vsp3_animation(
+    ["case_001.vsp3", "case_002.vsp3", "case_003.vsp3"],
+    "mesh_change.mp4",
+    size=(1600, 1200),
+    render_mode="hidden",
+    fps=3,
+)
+```
+
+既定では `mesh_change_frames/` に連番 PNG と撮影条件の manifest を残します。
+同じモデル・表示条件で再実行すると正常な既存フレームを再利用し、欠損・破損
+フレームだけを撮り直します。`fps` や GIF / MP4 の違いは撮影画像を変えないため、
+同じ `frames_dir` から速度や形式を変えて再エンコードできます。モデルの一覧を
+処理する間は OpenVSP GUI を1回だけ起動し、完了時に閉じます。
+H.264 MP4 はアルファチャンネルを保持できないため、MP4 と
+`transparent_background=True` の組み合わせは受け付けません。
 
 ## ディレクトリ構成
 
@@ -161,9 +222,8 @@ OpenVSP/
 ├─ src/
 │  ├─ AnalysisVSPAERO.py
 │  ├─ VSPAEROMesh.py
-│  ├─ VSPAEROMeshDataset.py
-│  ├─ VSPAEROMeshQuality.py
 │  ├─ VSPAEROStab.py
+│  ├─ OpenVSPViewCapture.py
 │  ├─ TrimTurnSolver.py
 │  ├─ RollRudderGain.py
 │  ├─ VvGammaChart.py
@@ -195,112 +255,29 @@ OpenVSP Python API を通して VSPAERO 解析を実行します。
 
 ### `src/VSPAEROMesh.py`
 
-VSPAERO surface tessellation の初期化と mesh-convergence search を担当します。
+VSPAERO surface tessellation の **physical mesh equalization** を担当します。
 
-- `equalize_vspaero_tessellation()` — 実3次元 edge length を基準に、`Tess_W` / `SectTess_U` / `Tess_U` / active cap tessellation を揃える初期化処理
-- `resolve_vspaero_representation()` — `ThinWing / ThickWing / Hybrid / ThickAll` をモデル内の Geom Set に解決
-- `optimize_vspaero_tessellation()` — geometry・representation・clustering・wake 条件を固定し、W方向→U方向の順に mesh convergence を探索
-
-`optimize_vspaero_tessellation()` は Boeing や G103A の Geom 名を前提にしません。`representation` は必須で、既定では次の Set 名を使います。
-
-| representation | ThinGeomSet | GeomSet |
-|---|---|---|
-| `ThinWing` | `ThinGeom` | none |
-| `ThickWing` | none | `ThinGeom` |
-| `Hybrid` | `ThinGeom` | `ThickGeom` |
-| `ThickAll` | none | `ThickAll` |
-
-Set 名が異なるモデルでは `lifting_set_name` / `body_set_name` / `thick_all_set_name` を変更できます。`mesh_targets=None` なら、選択した representation で active な Geom のうち `Tess_W` を持つ surface Geom を自動的に対象にします。特定 Geom に限定する場合は Geom 名または Geom ID を `mesh_targets` に指定します。各 case の `.vsp3` には選択した `GeomSet / ThinGeomSet` も保存するため、出力モデル自体にも optimization representation が残ります。
-
-第一版の optimizer は、clustering や geometry を同時最適化しません。まず `Tess_W` を倍率的に変化させ、その selected case から `SectTess_U / Tess_U` を倍率的に変化させます。各 case は `VSPAEROMeshQuality.py` で診断し、次を分離して扱います。
-
-- hard constraint: mapping / non-manifold / Kutta などの geometry-topology check
-- primary convergence: ユーザー指定 QoI の mesh sensitivity
-- regression guard: strong mesh advisory / local Cp spike / LOD outlier
-- cost / provenance: NGon / triangle 数、wall time、OpenVSP version、各 raw artifact
-
-使用例:
+主な公開関数は `equalize_vspaero_tessellation()` です。reference Wing に指定した `Tess_W` を適用し、その実3次元 W-edge median を target mesh size として、各 surface Geom の `Tess_W`、`SectTess_U` / `Tess_U`、active Wing end cap の `CapUMinTess` を調整します。clustering parameter は変更しません。
 
 ```python
-from src.VSPAEROMesh import optimize_vspaero_tessellation
+from src.VSPAEROMesh import equalize_vspaero_tessellation
 
-result = optimize_vspaero_tessellation(
+report = equalize_vspaero_tessellation(
     input_vsp3_path="examples/models/G103A/G103A.vsp3",
-    output_dir="results/mesh_optimization",
-    representation="Hybrid",
-    qoi_tolerances={
-        "CLiw": 0.005,
-        "CDiw": 0.01,
-        "CMytot": 0.01,
-    },
-    # near-zero quantity の正規化 scale が必要なら明示する
-    qoi_scales={"CMytot": 0.05},
-    fixed_wake_flag=True,
+    output_vsp3_path="results/G103A.equalized.vsp3",
+    reference_wing_name="WingGeom",
+    reference_tess_w=65,
 )
 
-print(result["summary"]["fully_converged"])
-print(result["selected_vsp3_path"])
+print(report[[
+    "geom_name",
+    "u_target_ratio",
+    "w_target_ratio",
+    "cap_target_ratio",
+]])
 ```
 
-`qoi_tolerances` は普遍的な OpenVSP 公式閾値ではないため、解析目的に応じて利用者が指定します。隣接 mesh 間の判定には、各 QoI について
-
-```text
-abs(q_fine - q_coarse) / max(abs(q_fine), abs(q_coarse), qoi_scale)
-```
-
-を使用します。ゼロ近傍の moment 等では `qoi_scales` を明示してください。optimizer は `CLi-CLiw` の一致自体を目的関数にはしません。
-
-### `src/VSPAEROMeshDataset.py`
-
-将来の形状へ転用できる mesh sizing rule を作るための **raw calibration dataset generator** です。optimizer ではありません。`ThinWing / ThickWing / Hybrid / ThickAll` の active Geom を読み、実際に存在する mesh Parm だけを whitelist から発見します。
-
-対象は `Tess_W` / `Tess_U` / `SectTess_U` / `CapUMinTess` / `LECluster` / `TECluster` / `InCluster` / `OutCluster` / `FwdCluster` / `AftCluster` です。Geom type ごとに固定の section 数や名前を仮定しません。各 Parm は独立自由度として catalog 化され、既定では全自由度の one-factor sweep と、全自由度を同時に振る Latin-hypercube sample を生成します。必要なら pairwise extreme block や明示 case を後から同じ dataset に追加できます。
-
-同じ `output_dir` への再実行は append-only です。source model hash、OpenVSP version、representation、飛行条件、solver/wake 条件、全 requested mesh Parm から deterministic `case_id` を作り、完了済み case は再計算しません。別モデルや別 representation も同じ dataset に追加できます。
-
-永続データの source of truth は `cases/<case_id>/attempt_xx/` です。解析開始時に `request.json` を保存し、`.vsp3`、VSPAERO artifact、`mesh_quality/`、各 raw CSV を保存した最後にだけ `case.json` を atomic に作成します。`case.json` がない attempt は途中中断として扱われ、次回は新しい attempt で再実行されます。したがって集約 CSV は resume 判定には使用しません。
-
-各 attempt に保存する raw data は `parameters.csv` / `geoms.csv` / `sections.csv` / `junctions.csv` / `polar.csv` です。dataset root の `cases.csv` などは派生集計で、正常終了時に一度だけ再構築されます。途中終了後でも `rebuild_mesh_dataset_tables(output_dir)` を呼べば、commit 済み `case.json` だけから再生成できます。
-
-VSPAERO sweep の `verbose` は dataset campaign では常に 0 です。campaign 自身の `verbose` は進捗表示だけを制御し、現在時刻、case runtime、累積時間、直近20件の正常終了 case の runtime 中央値を使った estimated finish time を表示します。
-
-生成される主な集約表は次のとおりです。
-
-- `cases.csv` — 実行状態、開始/終了時刻、計算時間、mesh/Cp/LOD/topology の要約、artifact hash
-- `parameter_catalog.csv` — source model に存在した全 mesh Parm と baseline / limits
-- `parameters.csv` — 各 case の requested / effective Parm 値
-- `geoms.csv` — geometry scale、曲率、実3D U/W edge distribution、adjacent growth、`small_panel_w` / `max_growth_w`
-- `sections.csv` — section/cap の物理長、実U-edge、XSec寸法、section clustering
-- `junctions.csv` — post-intersection junction の raw diagnostics
-- `polar.csv` — VSPAERO polar result を long format で保存
-
-`SmallPanelW` / `MaxGrowth` は入力自由度にはせず、生成後の実3D edge から dataset 側で再計算します。また dataset generator は `good_mesh` のような教師ラベルを作りません。topology family、convergence plateau、reference candidate、許容誤差などは raw data を保持したまま後段で再定義します。
-
-使用例:
-
-```python
-from src.VSPAEROMeshDataset import (
-    build_vspaero_mesh_rule_dataset,
-    rebuild_mesh_dataset_tables,
-)
-
-result = build_vspaero_mesh_rule_dataset(
-    input_vsp3_path="examples/models/Boeing_777-9x_mod/Boeing_777-9x_mod.vsp3",
-    output_dir="results/mesh_rule_dataset",
-    representation="ThickAll",
-    lhs_samples=256,
-    ncpu=8,
-    wake_num_iter=12,
-)
-
-print(result["planned_case_count"])
-print(result["parameter_catalog_path"])
-
-# 途中停止後でも、commit 済み case だけから集約表を再構築できます。
-rebuild_mesh_dataset_tables("results/mesh_rule_dataset")
-```
-
-長時間 campaign を拡張するときは、同じ `output_dir` を指定したまま `lhs_seed` / `lhs_samples` を変更する、`include_pairwise_extremes=True` を追加する、または `explicit_cases` を渡します。
+処理は、geometry から初期 tessellation count を決めた後、OpenVSP が実際に生成した 3D tessellation edge を再測定し、指定 tolerance を外れる方向だけを少数回補正します。VSPAERO convergence study や post-intersection mesh diagnostics はこの module の責務に含めません。
 
 ### `src/VSPAEROStab.py`
 
@@ -313,39 +290,6 @@ VSPAERO `.stab` ファイルの読み取りを担当します。
 - Control Surface Group と `ConGrp_*` の対応
 
 を共通形式へ変換し、定常旋回 solver、6DoF simulation、設計チャートから共通利用します。
-
-### `src/VSPAEROMeshQuality.py`
-
-VSPAERO の `.adb` v3 を読み、surface triangle の幾何品質と `Cp` を同じ ID 上で診断します。`.vspgeom v3` がある場合は alternate triangulation を original NGon に対応付け、NGon 単位の局所 `Cp`、Kutta / wake topology、実際に生成された 3D edge 長、junction の cut-edge 寸法を同時に確認できます。
-
-`.history` / `.polar` / `.lod` / `.vspaero` / `.vsp3` がある場合は solution-level diagnostics と解析 provenance も同じ report に含めます。入力した `Tess_W` や `SectTess_U` の値だけでは mesh quality を判断せず、`.vspgeom` に実際に書かれた post-intersection mesh の物理寸法を出力します。
-
-主な公開関数は `analyze_vspaero_mesh_quality()` です。
-
-```python
-from VSPAEROMeshQuality import MeshQualitySettings, analyze_vspaero_mesh_quality
-
-result = analyze_vspaero_mesh_quality(
-    "model.adb",
-    "model.vspgeom",
-    "mesh_quality",
-    history_path="model.history",
-    lod_path="model.lod",
-    vspaero_path="model.vspaero",
-    vsp3_path="model.vsp3",
-    settings=MeshQualitySettings(),
-)
-```
-
-v5 では API を整理しています。
-
-- threshold 群は `MeshQualitySettings` に集約
-- `component_ids` / `surface_ids` / `bbox` による main analyzer 内の部分 filter は削除
-- `summary` は `provenance` / `condition` / `mesh` / `cp` / `topology` / `kutta` / `solution` / `lod` / `checks` に整理
-- `structural_checks_passed` は廃止し、`summary["checks"]["geometry_topology_checks_passed"]` を使用
-- v3 compatibility alias は削除
-
-局所的な抽出は analyzer が返す `triangles` / `ngons` / `mesh_edges` / `junction_quality` を呼び出し側で filter してください。これにより、一つの summary 内で「一部領域の Cp」と「全機の Kutta topology」が混在することを避けています。
 
 ### `src/TrimTurnSolver.py`
 
@@ -403,11 +347,12 @@ Vv–Gamma_eff chart
 - VSPAERO geometry set
 - Thin / Thick geometry の扱い
 - Control Surface Group
+- `Control Group Angles` の有効化状態
 - control surface gain と舵角符号
 - VSPAERO analysis method
 - wake settings
 
-G103A の trimmed-polar workflow では、既存モデルの `WingGeom` と `ELEVATOR_GROUP` を使用します。
+G103A の trimmed-polar workflow では、既存モデルの `WingGeom` と `ELEVATOR_GROUP` を使用します。`ELEVATOR_GROUP` は VSPAERO の `Control Group Angles` で有効化されている必要があります。`vsp_trimmed_sweep()` はこの設定を自動変更せず、無効な場合は解析前にエラーにします。
 
 Control Surface Group の名前は `.stab` の `ConGrp_*` と実際の舵を対応させるためにも重要です。G103A と SampleGlider の例では、次の名前を使用しています。
 
@@ -475,3 +420,6 @@ VSPAERO の安定微係数は wake discretization / wake iteration の影響を�
 現時点では、このリポジトリ全体に対する `LICENSE` ファイルは置いていません。
 
 また、`examples/models/` に含まれる flight manual、airfoil data、その他第三者由来の資料・データについては、それぞれの権利者・配布元の条件に従ってください。
+## 技術・V&V 統合ベースライン
+
+過去の OpenVSP / VSPAERO mesh 診断、optimizer、rule-calibration dataset を含む技術履歴は、`docs/archive/OpenVSP_VSPAERO_integrated_technical_baseline_2026-09-23_v2.md` に保存しています。現在の実装は `src/VSPAEROMesh.py` の physical mesh equalization と `examples/notebooks/mesh_equalization/` を基準にしてください。
