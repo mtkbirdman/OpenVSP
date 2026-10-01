@@ -86,8 +86,9 @@ def capture_vsp3_views(
     view_grid: Sequence[Sequence[ViewSpec | str]] = ORTHOGRAPHIC_FOUR_VIEW_LAYOUT,
     render_mode: str = "preserve",
     fit: bool = True,
+    fit_to_content: bool = False,
+    content_padding_px: int = 12,
     transparent_background: bool = False,
-    autocrop: bool = False,
     show_axis: bool = False,
     show_borders: bool = False,
     overwrite: bool = False,
@@ -100,6 +101,10 @@ def capture_vsp3_views(
     ``texture``. ``preserve`` keeps every Geom's saved draw type. Other modes
     change only Geoms that are already visible; Geoms saved as
     ``GEOM_DRAW_NONE`` remain hidden.
+
+    When ``fit_to_content`` is true, every rendered panel is cropped to its
+    non-transparent pixels after rotation, resized without distortion, and
+    centered in its output cell with ``content_padding_px`` pixels of padding.
     """
 
     model_path = _resolve_vsp3_paths([vsp3_path])[0]
@@ -114,8 +119,13 @@ def capture_vsp3_views(
     width, height = _validate_size(size)
     normalized_grid = _normalize_view_grid(view_grid)
     render_mode = _validate_render_mode(render_mode)
-    if autocrop and not transparent_background:
-        raise ValueError("autocrop=True requires transparent_background=True")
+    _validate_content_fit(
+        fit_to_content,
+        content_padding_px,
+        show_borders,
+        size=(width, height),
+        view_grid=normalized_grid,
+    )
     if timeout_s is not None and timeout_s <= 0:
         raise ValueError("timeout_s must be greater than zero or None")
 
@@ -127,8 +137,9 @@ def capture_vsp3_views(
         view_grid=normalized_grid,
         render_mode=render_mode,
         fit=fit,
+        fit_to_content=fit_to_content,
+        content_padding_px=content_padding_px,
         transparent_background=transparent_background,
-        autocrop=autocrop,
         show_axis=show_axis,
         show_borders=show_borders,
         python_executable=python_executable,
@@ -147,8 +158,9 @@ def create_vsp3_animation(
     frames_dir: str | Path | None = None,
     keep_frames: bool = True,
     fit: bool = True,
+    fit_to_content: bool = False,
+    content_padding_px: int = 12,
     transparent_background: bool = False,
-    autocrop: bool = False,
     show_axis: bool = False,
     show_borders: bool = False,
     overwrite: bool = False,
@@ -161,6 +173,7 @@ def create_vsp3_animation(
     from ``output_path`` (``.gif`` or ``.mp4``). When ``keep_frames`` is true,
     numbered PNG files and a capture manifest are retained. Repeating the same
     request reuses valid frames and captures only missing or damaged ones.
+    ``fit_to_content`` is applied independently to every view in every frame.
     """
 
     model_paths = _resolve_vsp3_paths(vsp3_paths)
@@ -178,15 +191,29 @@ def create_vsp3_animation(
         raise ValueError("fps must be greater than zero")
     if frames_dir is not None and not keep_frames:
         raise ValueError("frames_dir cannot be used when keep_frames=False")
-    if autocrop and not transparent_background:
-        raise ValueError("autocrop=True requires transparent_background=True")
     if timeout_s is not None and timeout_s <= 0:
         raise ValueError("timeout_s must be greater than zero or None")
 
     width, height = _validate_size(size)
     normalized_grid = _normalize_view_grid(view_grid)
     render_mode = _validate_render_mode(render_mode)
+    _validate_content_fit(
+        fit_to_content,
+        content_padding_px,
+        show_borders,
+        size=(width, height),
+        view_grid=normalized_grid,
+    )
     destination.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        import imageio_ffmpeg
+    except ImportError as exc:
+        raise ImportError(
+            "imageio-ffmpeg is required for GIF/MP4 encoding. "
+            "Install it with: python -m pip install imageio-ffmpeg"
+        ) from exc
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
 
     temporary_frames = None
     if keep_frames:
@@ -206,7 +233,7 @@ def create_vsp3_animation(
             for index in range(1, len(model_paths) + 1)
         ]
         capture_manifest = {
-            "schema_version": 2,
+            "schema_version": 3,
             "models": [
                 {
                     "path": str(path),
@@ -225,8 +252,9 @@ def create_vsp3_animation(
             ],
             "render_mode": render_mode,
             "fit": fit,
+            "fit_to_content": fit_to_content,
+            "content_padding_px": content_padding_px,
             "transparent_background": transparent_background,
-            "autocrop": autocrop,
             "show_axis": show_axis,
             "show_borders": show_borders,
         }
@@ -280,76 +308,89 @@ def create_vsp3_animation(
                 view_grid=normalized_grid,
                 render_mode=render_mode,
                 fit=fit,
+                fit_to_content=fit_to_content,
+                content_padding_px=content_padding_px,
                 transparent_background=transparent_background,
-                autocrop=autocrop,
                 show_axis=show_axis,
                 show_borders=show_borders,
                 python_executable=python_executable,
                 timeout_s=timeout_s,
             )
 
-        if output_format == ".mp4":
-            try:
-                import imageio_ffmpeg
-            except ImportError as exc:
-                raise ImportError(
-                    "imageio-ffmpeg is required for MP4 encoding. "
-                    "Install it with: python -m pip install imageio-ffmpeg"
-                ) from exc
+        input_pattern = frame_root / "frame_%06d.png"
+        fps_text = f"{float(fps):g}"
+        commands: list[list[str]] = []
 
-            command = [
-                imageio_ffmpeg.get_ffmpeg_exe(),
-                "-y",
-                "-framerate",
-                f"{float(fps):g}",
-                "-start_number",
-                "1",
-                "-i",
-                str(frame_root / "frame_%06d.png"),
-                "-frames:v",
-                str(len(frame_paths)),
-                "-vf",
-                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                str(destination),
-            ]
-            result = subprocess.run(
-                command, capture_output=True, text=True, check=False
+        if output_format == ".mp4":
+            commands.append(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-framerate",
+                    fps_text,
+                    "-start_number",
+                    "1",
+                    "-i",
+                    str(input_pattern),
+                    "-frames:v",
+                    str(len(frame_paths)),
+                    "-vf",
+                    "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    str(destination),
+                ]
             )
+        else:
+            palette_path = frame_root / "gif_palette.png"
+            commands.extend(
+                [
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-framerate",
+                        fps_text,
+                        "-start_number",
+                        "1",
+                        "-i",
+                        str(input_pattern),
+                        "-frames:v",
+                        str(len(frame_paths)),
+                        "-vf",
+                        f"fps={fps_text},palettegen=stats_mode=diff",
+                        str(palette_path),
+                    ],
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-framerate",
+                        fps_text,
+                        "-start_number",
+                        "1",
+                        "-i",
+                        str(input_pattern),
+                        "-i",
+                        str(palette_path),
+                        "-frames:v",
+                        str(len(frame_paths)),
+                        "-lavfi",
+                        f"fps={fps_text}[frame];[frame][1:v]paletteuse=dither=sierra2_4a",
+                        "-loop",
+                        "0",
+                        str(destination),
+                    ],
+                ]
+            )
+
+        for command in commands:
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
             if result.returncode != 0:
                 details = result.stderr.strip() or result.stdout.strip()
-                raise RuntimeError(f"FFmpeg MP4 encoding failed.\n{details}")
-        else:
-            # Pillow is already required for screenshot composition. Using it
-            # directly keeps GIF creation in one process and avoids the fragile
-            # FFmpeg palette-generation/palette-application sequence.
-            animation_frames = []
-            for frame_path in frame_paths:
-                with Image.open(frame_path) as frame:
-                    mode = "RGBA" if transparent_background else "RGB"
-                    animation_frames.append(frame.convert(mode))
-
-            animation_frames[0].save(
-                destination,
-                format="GIF",
-                save_all=True,
-                append_images=animation_frames[1:],
-                duration=max(1, round(1000 / fps)),
-                loop=0,
-                disposal=2,
-            )
-            for frame in animation_frames:
-                frame.close()
-
-            # Remove the intermediate file left by the former FFmpeg encoder.
-            legacy_palette = frame_root / "gif_palette.png"
-            if legacy_palette.exists():
-                legacy_palette.unlink()
+                raise RuntimeError(f"FFmpeg animation encoding failed.\n{details}")
 
         if not destination.is_file() or destination.stat().st_size == 0:
             raise RuntimeError(f"Animation was not created: {destination}")
@@ -429,6 +470,35 @@ def _validate_render_mode(render_mode: str) -> str:
         raise ValueError(f"Unsupported render_mode {render_mode!r}. Supported: {supported}")
     return render_mode
 
+def _validate_content_fit(
+    fit_to_content: bool,
+    content_padding_px: int,
+    show_borders: bool,
+    *,
+    size: tuple[int, int],
+    view_grid: Sequence[Sequence[ViewSpec]],
+) -> None:
+    if not isinstance(fit_to_content, bool):
+        raise TypeError("fit_to_content must be a bool")
+    if isinstance(content_padding_px, bool) or not isinstance(
+        content_padding_px, int
+    ):
+        raise TypeError("content_padding_px must be an integer")
+    if content_padding_px < 0:
+        raise ValueError("content_padding_px must be nonnegative")
+    if fit_to_content and show_borders:
+        raise ValueError(
+            "fit_to_content=True cannot be combined with show_borders=True"
+        )
+    if fit_to_content:
+        cell_width = min(_split_extent(size[0], len(view_grid[0])))
+        cell_height = min(_split_extent(size[1], len(view_grid)))
+        if 2 * content_padding_px >= min(cell_width, cell_height):
+            raise ValueError(
+                f"content_padding_px={content_padding_px} leaves no room in "
+                f"the smallest {cell_width}x{cell_height} output cell"
+            )
+
 def _split_extent(total: int, count: int) -> list[int]:
     quotient, remainder = divmod(total, count)
     if quotient == 0:
@@ -443,8 +513,9 @@ def _capture_vsp3_files(
     view_grid: Sequence[Sequence[ViewSpec]],
     render_mode: str,
     fit: bool,
+    fit_to_content: bool,
+    content_padding_px: int,
     transparent_background: bool,
-    autocrop: bool,
     show_axis: bool,
     show_borders: bool,
     python_executable: str | Path | None,
@@ -470,8 +541,9 @@ def _capture_vsp3_files(
         ],
         "render_mode": render_mode,
         "fit": fit,
+        "fit_to_content": fit_to_content,
+        "content_padding_px": content_padding_px,
         "transparent_background": transparent_background,
-        "autocrop": autocrop,
         "show_axis": show_axis,
         "show_borders": show_borders,
     }
@@ -517,14 +589,15 @@ def _compose_panels(
     destination: Path,
     *,
     size: tuple[int, int],
+    fit_to_content: bool,
+    content_padding_px: int,
     transparent_background: bool,
 ) -> None:
     width, height = size
     column_widths = _split_extent(width, len(view_grid[0]))
     row_heights = _split_extent(height, len(view_grid))
-    canvas_mode = "RGBA" if transparent_background else "RGB"
-    canvas_color = (0, 0, 0, 0) if transparent_background else (255, 255, 255)
-    canvas = Image.new(canvas_mode, (width, height), canvas_color)
+    canvas_color = (0, 0, 0, 0) if transparent_background else (255, 255, 255, 255)
+    canvas = Image.new("RGBA", (width, height), canvas_color)
 
     y = 0
     for row_index, (row_paths, row_specs) in enumerate(zip(panel_paths, view_grid)):
@@ -533,28 +606,89 @@ def _compose_panels(
             if not panel_path.is_file() or panel_path.stat().st_size == 0:
                 raise RuntimeError(f"OpenVSP did not create panel: {panel_path}")
             with Image.open(panel_path) as opened_image:
-                panel = opened_image.convert(canvas_mode)
+                panel = opened_image.convert("RGBA")
             if spec.rotate_deg:
                 panel = panel.rotate(spec.rotate_deg, expand=True)
 
             panel_width = column_widths[column_index]
             panel_height = row_heights[row_index]
-            if panel.width > panel_width or panel.height > panel_height:
-                raise RuntimeError(
-                    "OpenVSP panel is larger than its output cell after rotation: "
-                    f"{panel.size} does not fit {(panel_width, panel_height)}"
+            if fit_to_content:
+                panel = _fit_panel_to_cell(
+                    panel,
+                    (panel_width, panel_height),
+                    content_padding_px,
+                    panel_label=(
+                        f"view {spec.view!r} at row {row_index}, "
+                        f"column {column_index}"
+                    ),
                 )
-            offset = (
-                x + (panel_width - panel.width) // 2,
-                y + (panel_height - panel.height) // 2,
-            )
-            if canvas_mode == "RGBA":
-                canvas.alpha_composite(panel, offset)
             else:
-                canvas.paste(panel, offset)
+                if panel.width > panel_width or panel.height > panel_height:
+                    raise RuntimeError(
+                        "OpenVSP panel is larger than its output cell after rotation: "
+                        f"{panel.size} does not fit {(panel_width, panel_height)}"
+                    )
+                cell = Image.new("RGBA", (panel_width, panel_height), (0, 0, 0, 0))
+                cell.alpha_composite(
+                    panel,
+                    (
+                        (panel_width - panel.width) // 2,
+                        (panel_height - panel.height) // 2,
+                    ),
+                )
+                panel = cell
+
+            canvas.alpha_composite(panel, (x, y))
             x += panel_width
         y += row_heights[row_index]
-    canvas.save(destination, format="PNG")
+
+    if transparent_background:
+        canvas.save(destination, format="PNG")
+    else:
+        canvas.convert("RGB").save(destination, format="PNG")
+
+def _fit_panel_to_cell(
+    panel: Image.Image,
+    cell_size: tuple[int, int],
+    padding_px: int,
+    *,
+    panel_label: str = "panel",
+) -> Image.Image:
+    cell_width, cell_height = cell_size
+    available_width = cell_width - 2 * padding_px
+    available_height = cell_height - 2 * padding_px
+    if available_width <= 0 or available_height <= 0:
+        raise ValueError(
+            f"content_padding_px={padding_px} leaves no room in "
+            f"the {cell_width}x{cell_height} output cell"
+        )
+
+    rgba_panel = panel.convert("RGBA")
+    content_bbox = rgba_panel.getchannel("A").getbbox()
+    if content_bbox is None:
+        raise RuntimeError(f"OpenVSP rendered no visible content for {panel_label}")
+
+    content = rgba_panel.crop(content_bbox)
+    scale = min(
+        available_width / content.width,
+        available_height / content.height,
+    )
+    resized_size = (
+        max(1, round(content.width * scale)),
+        max(1, round(content.height * scale)),
+    )
+    if content.size != resized_size:
+        content = content.resize(resized_size, Image.Resampling.LANCZOS)
+
+    cell = Image.new("RGBA", (cell_width, cell_height), (0, 0, 0, 0))
+    cell.alpha_composite(
+        content,
+        (
+            (cell_width - content.width) // 2,
+            (cell_height - content.height) // 2,
+        ),
+    )
+    return cell
 
 def _capture_worker(request_path: Path) -> None:
     request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -653,12 +787,16 @@ def _capture_worker(request_path: Path) -> None:
                         if request["fit"]:
                             vsp.FitAllViews()
                         vsp.UpdateGUI()
+                        capture_transparent_background = (
+                            request["transparent_background"]
+                            or request["fit_to_content"]
+                        )
                         vsp.ScreenGrab(
                             str(panel_path),
                             capture_width,
                             capture_height,
-                            request["transparent_background"],
-                            request["autocrop"],
+                            capture_transparent_background,
+                            False,
                         )
                     panel_paths.append(path_row)
 
@@ -667,6 +805,8 @@ def _capture_worker(request_path: Path) -> None:
                     view_grid,
                     Path(frame["output_path"]),
                     size=(width, height),
+                    fit_to_content=request["fit_to_content"],
+                    content_padding_px=request["content_padding_px"],
                     transparent_background=request["transparent_background"],
                 )
     finally:
