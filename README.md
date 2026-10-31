@@ -1,320 +1,87 @@
-# OpenVSP Python tools — v20261031.11
+# OpenVSP / VSPAERO Python解析ツール
 
-**Repository layout:** `src/openvsppy/` (`core`, `geometry`, `visualization`,
-`vspaero`, `aerodynamics`, `vv`). V&V configurations and immutable reference
-evidence remain in `vv_study/`; official V&V documentation is in `docs/vv/`.
+OpenVSP / VSPAEROをPythonから利用し、航空機の空力解析・飛行力学解析・可視化と、VSPAEROのVerification & Validation（V&V）を支援するリポジトリです。解析コード、Notebook、再現可能なV&V定義、試験用データ、技術文書を収録しています。
 
-**Fresh ZIP, no installation (PowerShell):**
+> **対象と制約**：このリポジトリはOpenVSP本体の配布物ではありません。OpenVSP本体、互換性のあるPython API、VSPAERO実行ファイルは別途用意してください。V&V基盤を実装していることは、VSPAEROの予測精度や工学的使用可能性が認定されたことを意味しません。
+
+## 1. 主な機能
+
+| 分野 | 機能 | 主な実装 |
+|---|---|---|
+| VSPAERO解析 | 迎角・Mach数・Reynolds数のSweep、縦トリム、地面効果、安定微係数 | `src/openvsppy/vspaero/` |
+| 空力・飛行力学 | 寄生抗力補正、定常旋回トリム、ラダー応答、横風突風の6自由度応答 | `src/openvsppy/aerodynamics/` |
+| メッシュ | 3次元エッジ長に基づくVSPAEROメッシュ分割の調整 | `src/openvsppy/vspaero/VSPAEROMesh.py` |
+| 可視化 | `.vsp3`の複数方向撮影、PNG合成、GIF・MP4アニメーション | `src/openvsppy/visualization/` |
+| V&V | 試験定義、実行管理、SQLite記録、結果比較・評価、図表・報告書生成 | `src/openvsppy/vv/` |
+
+解析用のモデルとNotebookは`examples/`に、V&Vの設定と保存対象の参照証拠は`vv_study/`にあります。
+
+## 2. 動作環境
+
+- **Python**：`pyproject.toml`の指定は3.10以上。ただし、OpenVSP Python APIを使用する場合は、**インストールされたOpenVSP 3.50.5 APIのビルド対象Pythonと互換性のある環境**が必要です。Pythonのバージョンだけでは共有ライブラリの動作まで保証されません。
+- **OpenVSP / VSPAERO**：V&Vのネイティブ試験は3.50.5を対象としています。オフラインテストの一部はOpenVSPなしで実行できます。
+- **主なPythonライブラリ**：NumPy、pandas、SciPy、Matplotlib。撮影・動画関連機能にはPillow、imageio-ffmpeg、NotebookにはJupyterが必要です。V&V報告書の追加依存は`requirements-vv-report.txt`を参照してください。
+- **実行環境**：以下はWindows PowerShellの例です。パスとConda環境名は利用環境に合わせてください。
+
+公式情報：[OpenVSP](https://openvsp.org/)／[Python APIリファレンス](https://openvsp.org/pyapi_docs/latest/)／[ドキュメント](https://openvsp.org/docs.shtml)
+
+### 既存リポジトリからの起動
 
 ```powershell
-Set-Location 'C:\Work\OpenVSP-VV_20261031_11\OpenVSP-main'
+# 自分のリポジトリルートへ移動（実際のパスへ変更）
+$repo = 'C:\path\to\OpenVSP'
+Set-Location $repo
 conda activate vsppytools.3.50.5
 $env:PYTHONPATH = (Resolve-Path '.\src').Path
+
 python -m openvsppy.vv --help
-python -m pytest -q
+python -m pytest -q -rs
 ```
 
-**Jupyter notebooks:** run the first cell, which inserts this checkout's `src`
-into `sys.path`. `pip install -e .` is **not** required. Compatible OpenVSP
-Python API and notebook-specific input files are still necessary.
-
-**New DB only:** `python -m openvsppy.vv --db vv_study/01_database/vv_20261031_11.sqlite init`.
-Previous SQLite migrations and legacy `vv` import paths were deliberately removed.
-For full CLI instructions see [V&V CLI guide](docs/vv/VV_CLI_Guide.md).
-
-**NCPU (OpenMP threads):** `run`, `run-test`, and `execute-all` accept `--ncpu 4`. Without the option they use the Case's optional `numerical_setting.requested.vspaero.NCPU`, or `1` if absent. CLI overrides the Case setting for the Run only. Effective NCPU is saved in Run evidence and checked before reuse. This is **not** the parallel Case count; `--jobs` remains 1. Windows v20261031.10 GEO-03-G3 successfully executed with NCPU=8; subsequent execute-all NCPU=4 showed both successes and failed Cases, which v11 diagnoses explicitly.
-
-The v20261031.3 Windows API GEO-03-G3 success is a retained baseline;
-v20261031.4–v20261031.11 have not been Windows API-regression-tested; v9 has a standalone Linux VSPAERO smoke PASS.
-
-**v11 end-to-end execution diagnostics:** active control groups are reconciled to
-selected Thin/Thick geometry (absent groups disabled, partial groups rejected);
-VSPGEOM/vkey mesh preflight can reject structurally implausible results before
-solver execution; native failures preserve observed phase; verbose Adjoint emits
-force/moment stages and GMRES milestones. `execution.reviewed.json` has
-`timeouts_seconds_by_mode: {"ADJOINT": 10800}` and optional
-`timeouts_seconds_by_case` overrides. These are runtime limits, not changes to
-physical/numerical convergence settings. The report remains a review artifact,
-not an automatic engineering PASS.
-
----
-
-# 2026-10-31.0: 一括解析・数値集計・グラフ・報告書
-
-レビュー済みの入力条件を1つの実行マニフェストに記述し、
-`python -m openvsppy.vv execute-all --config vv_study/execution.reviewed.json --binary <vspaero.exe> --python <python.exe>`
-を実行します。取得できた数値はSQLiteから集計され、PNG図と13章Markdown草稿へ反映されます。
-未設定/欠測Caseは推測で補完せず、報告書に記録します。
-
-現行実行手順：[`docs/vv/VV_CLI_Guide.md`](docs/vv/VV_CLI_Guide.md)  
-25試験の実装状況：[`docs/vv/VV_Implementation_Status.md`](docs/vv/VV_Implementation_Status.md)  
-変更履歴：[`docs/vv/CHANGELOG.md`](docs/vv/CHANGELOG.md)
-
----
-
-# OpenVSP / VSPAERO analysis utilities
-
-OpenVSP / VSPAERO を Python から実行し、航空機の空力解析・安定微係数解析・定常旋回トリム・6自由度応答・垂直尾翼／上反角の設計検討までをつなぐための解析コードと実行例です。
-
-> [!NOTE]
-> このリポジトリは NASA/OpenVSP 本体ではありません。OpenVSP 本体と Python API は別途インストールしてください。
-
-## できること
-
-主な解析の流れは次のとおりです。
-
-```text
-OpenVSP model (.vsp3)
-        │
-        ├─ VSPAERO sweep / pitch-trimmed polar / ground effect
-        │      └─ src/openvsppy/vspaero/AnalysisVSPAERO.py
-        │
-        └─ VSPAERO stability derivatives
-               └─ src/openvsppy/vspaero/AnalysisVSPAERO.py
-                      │
-                      ▼
-                   .stab
-                      │
-                      ├─ .stab parsing / linear aero model
-                      │      └─ src/openvsppy/vspaero/VSPAEROStab.py
-                      │
-                      ├─ steady turn trim
-                      │      └─ src/openvsppy/aerodynamics/TrimTurnSolver.py
-                      │
-                      ├─ rudder-step / crosswind-gust response
-                      │      └─ src/openvsppy/aerodynamics/RollRudderGain.py
-                      │
-                      └─ Vv–Gamma design study
-                             └─ src/openvsppy/aerodynamics/VVGammaChart.py
-```
-
-具体的には、次の処理を含みます。
-
-- VSPAERO の迎角・Mach・Reynolds 数 sweep
-- Control Surface Group の設定
-- エレベータを用いた pitch-trimmed polar
-- ground effect sweep
-- VSPAERO stability derivatives の実行と `.stab` 取得
-- `.stab` の読み取りと線形空力モデルの評価
-- 定常高度維持旋回・定常滑空旋回・ラダー限界旋回のトリム計算
-- ラダーステップ入力に対する横・方向応答と 6DoF 応答
-- 1-cosine 横風突風に対する 6DoF 応答
-- 垂直尾翼容積比 `Vv` と翼端たわみ量を変化させた VSPAERO stability sweep
-- `Vv–Gamma_eff` 設計チャートの後処理・描画
-- wake iteration / wake node 数の収束確認
-- reference Wing の実3次元 edge size を基準にした VSPAERO surface mesh equalization
-- `.vsp3` モデルの複数方向スクリーンショット撮影と PNG グリッド合成
-- 複数 `.vsp3` の連続撮影と GIF / MP4 アニメーション作成
-
-## 必要な環境
-
-### OpenVSP
-
-OpenVSP 本体と、その OpenVSP build に対応する Python API が必要です。
-
-OpenVSP Python API は、**OpenVSP がビルドされた Python バージョンと同じ Python バージョンを使用する必要があります**。
-
-- OpenVSP: <https://openvsp.org/>
-- OpenVSP Python API documentation: <https://openvsp.org/pyapi_docs/latest/>
-- OpenVSP documentation: <https://openvsp.org/docs.shtml>
-
-まず、使用する Python 環境で次が成功することを確認してください。
-
-```python
-import openvsp as vsp
-print(vsp.GetVSPVersion())
-```
-
-### Python packages
-
-このリポジトリは Python package として配布していません。リポジトリルートを作業ディレクトリとして、そのまま `src` を import して使用します。
-
-OpenVSP Python API に加えて、解析内容に応じて次の package を使用します。
-
-```bash
-python -m pip install numpy pandas scipy matplotlib pillow imageio-ffmpeg jupyter
-```
-
-主な依存関係は次のとおりです。
-
-- NumPy
-- pandas
-- SciPy
-- Matplotlib
-- Pillow（OpenVSP スクリーンショットの回転・合成）
-- imageio-ffmpeg（GIF / MP4 のエンコード）
-- Jupyter（Notebook を使用する場合）
-
-## Quick start
-
-リポジトリを clone し、**リポジトリルートから**実行します。
-
-```bash
-git clone https://github.com/mtkbirdman/OpenVSP.git
-cd OpenVSP
-```
-
-### Tests を実行する
-
-自動検証は `tests/` に統一しています。リポジトリルートから次を実行します。
-
-```bash
-python -m pytest
-```
-
-現在、次の test があります。
-
-```text
-tests/test_vspaero_mesh.py
-tests/test_turn_trim.py
-tests/test_sweep.py
-tests/test_control_surface.py
-tests/test_ground_effect.py
-tests/test_trimmed_polar.py
-tests/test_stability_derivatives.py
-tests/test_openvsp_view_capture.py
-```
-
-`test_vspaero_mesh.py` の入力 validation、`test_turn_trim.py`、`test_openvsp_view_capture.py` の通常テストは OpenVSP を実行せずに検証できます。`test_turn_trim.py` は同梱されている `SampleGlider.stab` を使い、定常滑空旋回、定常高度維持・ラダーのみ旋回、ラダー限界旋回について、力・モーメント残差、無推力条件、高度維持条件、ラダー限界の選択処理を assertion で確認します。
-
-`test_vspaero_mesh.py` のメッシュ調整と `test_parasite_drag.py` の実機試験は `native_openvsp`、VSPAERO ソルバーによる Sweep・地面効果・安定微係数・Aileron・Trim は `native_vspaero`、GUI画像は `gui` と分類します。`native_solver` は OpenVSP Python API を経由しない独立した診断専用スモークテストです。
-
-**通常の `python -m pytest -q -rs` は OpenVSP API/VSPAERO/GUI を起動しません。** Native対象は意図的に `DESELECTED` となり、SKIPではありません。`pytest.ini`は廃止し `pyproject.toml` を唯一のpytest設定にしています。`STABILITY_ADJOINT` と multi-point trim は `slow` も併記しています。
+環境に合わせて依存ライブラリを追加する場合の例：
 
 ```powershell
-# OpenVSP 3.50.5 Python APIと VSPAERO_BINARYのセットアップ後、実行する
-$env:VSPAERO_BINARY = 'C:\OpenVSP-3.50.5\vspaero.exe' # 実在するパスへ変更
-python tools/run_native_pytest.py --marker native_openvsp --timeout 600
-python tools/run_native_pytest.py --marker native_vspaero --timeout 3600
-python tools/run_native_pytest.py --marker native_solver --timeout 240
-python tools/run_native_pytest.py --marker all-native --list-only
+python -m pip install numpy pandas scipy matplotlib pillow imageio-ffmpeg jupyter pytest
 ```
 
-ランナーは各Caseを独立したpytestプロセスで実行し、長時間の無応答時は60秒ごとに生存確認、制限超過時は子ソルバーも含め終了します。ログ、隔離された作業領域、JSON集計は `native_test_results/` に保存（Git非管理）。詳細は [V&V CLIガイド](docs/vv/VV_CLI_Guide.md#9-pytestの通常実行とnative実行v202610319) を参照してください。直接 `pytest -m native_vspaero` でも選択可能ですが、ケース単位タイムアウトは適用されないので、長時間試験にはランナーを使用します。
+`pip install -e .`は必須ではありません。直接`src/`を`PYTHONPATH`へ追加できます。Notebookは先頭セルでチェックアウトの`src/`を`sys.path`に追加します。
 
-GUI試験は表示環境において `python tools/run_native_pytest.py --marker gui --timeout 300` で明示実行してください。自動で有効化しません。
+OpenVSP APIの利用前には、対応する環境で次を確認してください。
 
-`examples/scripts/` に置かれていた手動確認 script はすべて pytest 化したため、同ディレクトリは廃止しました。
-
-## Notebook
-
-より詳細な解析例は `examples/notebooks/` にあります。
-
-| Notebook | 内容 |
-|---|---|
-| `trimmed_polar/example_trimmed_polar.ipynb` | G103A の pitch-trimmed polar |
-| `trimmed_ground_effect/ground_effect.ipynb` | SampleGlider の ground effect |
-| `turn-maneuver/example_turn_trim.ipynb` | G103A の定常旋回・横滑り・ラダー限界旋回 |
-| `turn-maneuver/example_rudder_step_response.ipynb` | `.stab` を用いたラダーステップ 6DoF 応答 |
-| `turn-maneuver/example_crosswind_gust_response.ipynb` | 1-cosine 横風突風に対する 6DoF 応答 |
-| `vv_gamma_chart/test_vv_gamma_chart.ipynb` | `Vv × wing tip deflection` の stability sweep |
-| `vv_gamma_chart/plot_vv_gamma_chart.ipynb` | `Vv–Gamma_eff` chart の後処理・描画 |
-| `wake_convergence/run_wake_convergence.ipynb` | WakeNumIter / NumWakeNodes の収束計算 |
-| `wake_convergence/plot_wake_convergence.ipynb` | wake convergence 結果の可視化 |
-| `mesh_equalization/run_mesh_equalization.ipynb` | reference Wing の実3次元 edge size を基準にした surface mesh equalization |
-| `view_capture/example_view_capture.ipynb` | G103A の上面・左側面・正面・鳥瞰図を1枚の PNG に合成 |
-| `view_capture/example_view_animation.ipynb` | 複数 `.vsp3` を同じ視点で連続撮影し、MP4 / GIF を作成 |
-
-Notebook は、基本的にリポジトリ内の `src/` と `examples/models/` を利用する構成です。
-
-### OpenVSP view capture
-
-`src/openvsppy/visualization/OpenVSPViewCapture.py` の `capture_vsp3_views()` は、GUI 対応版 OpenVSP
-を専用の子プロセスで起動し、指定した標準ビューを個別に PNG 撮影してから
-1枚に合成します。子プロセス内で `openvsp_config.LOAD_GRAPHICS` と
-`LOAD_FACADE` を `openvsp` の import より前に設定するため、既存の Jupyter
-カーネルにある OpenVSP のモデル状態を変更しません。撮影中は GUI が表示され、
-撮影終了時に自動的に閉じます。
-
-```python
-from openvsppy.visualization.OpenVSPViewCapture import capture_vsp3_views
-
-capture_vsp3_views(
-    "examples/models/G103A/G103A.vsp3",
-    "G103A_four_views.png",
-    size=(1600, 1200),
-    render_mode="hidden",
-)
+```powershell
+python -c "import openvsp as vsp; print(vsp.GetVSPVersion())"
 ```
 
-既定配置は、左上が機首下向きの上面図、右上が機首下向きの左側面図、
-左下が正面図、右下が左鳥瞰図です。OpenVSP の `ScreenGrab` が対応する
-保存形式に合わせ、出力は PNG のみに制限しています。`render_mode` は
-`preserve`、`wire`、`hidden`、`shade`、`texture` から選べます。`preserve`
-以外を指定しても、モデル内で非表示の Geom は非表示のままです。
-レンダーモードの変更には OpenVSP 3.50 系にも存在する `SET_SHOWN` を使用します。
-各パネルの撮影前に OpenVSP のビューポート寸法を出力寸法へ合わせるため、
-3.50 系の `ScreenGrab` でも縦横比を保ちます。90度回転するビューは撮影時点で
-幅と高さを入れ替え、回転後に再拡大・再縮小しません。
-
-複数モデルでは `create_vsp3_animation()` に順序付きのパスを渡します。
-同じパスの重複もそのまま1フレームとして扱います。出力拡張子が `.gif`
-なら GIF、`.mp4` なら H.264 MP4 を作成します。
-
-```python
-from openvsppy.visualization.OpenVSPViewCapture import create_vsp3_animation
-
-result = create_vsp3_animation(
-    ["case_001.vsp3", "case_002.vsp3", "case_003.vsp3"],
-    "mesh_change.mp4",
-    size=(1600, 1200),
-    render_mode="hidden",
-    fps=3,
-)
-```
-
-既定では `mesh_change_frames/` に連番 PNG と撮影条件の manifest を残します。
-同じモデル・表示条件で再実行すると正常な既存フレームを再利用し、欠損・破損
-フレームだけを撮り直します。`fps` や GIF / MP4 の違いは撮影画像を変えないため、
-同じ `frames_dir` から速度や形式を変えて再エンコードできます。モデルの一覧を
-処理する間は OpenVSP GUI を1回だけ起動し、完了時に閉じます。
-H.264 MP4 はアルファチャンネルを保持できないため、MP4 と
-`transparent_background=True` の組み合わせは受け付けません。
-
-## ディレクトリ構成
+## 3. ディレクトリ構成
 
 ```text
 OpenVSP/
-├─ README.md
-├─ src/
-│  ├─ AnalysisVSPAERO.py
-│  ├─ VSPAEROMesh.py
-│  ├─ VSPAEROStab.py
-│  ├─ OpenVSPViewCapture.py
-│  ├─ TrimTurnSolver.py
-│  ├─ RollRudderGain.py
-│  ├─ VvGammaChart.py
-│  ├─ util.py
-│  ├─ ISAspecification.py
-│  └─ CST.py
-└─ examples/
-   ├─ models/
-   │  ├─ G103A/
-   │  ├─ SampleGlider/
-   │  └─ Boeing_777-9x_mod/
-   └─ notebooks/
+├── README.md
+├── pyproject.toml              # パッケージ・pytest設定
+├── requirements-vv-report.txt
+├── src/openvsppy/
+│   ├── core/                   # 共通ユーティリティ・大気モデル
+│   ├── geometry/               # 形状関数
+│   ├── vspaero/                # 解析API・メッシュ・安定微係数
+│   ├── aerodynamics/           # 飛行力学・抗力補正・設計計算
+│   ├── visualization/          # OpenVSPの撮影・画像処理
+│   └── vv/                     # V&V CLI・DB・ワーカー・報告
+├── examples/
+│   ├── models/                 # 解析モデルと付属データ
+│   └── notebooks/              # 解析・可視化の実行例
+├── tests/                      # オフライン・ネイティブ・GUIテスト
+│   └── fixtures/               # テストに必要な固定データ
+├── tools/
+│   └── run_native_pytest.py    # ネイティブテストの隔離実行
+├── docs/vv/                    # V&V計画・仕様・運用・履歴
+└── vv_study/                   # V&V設定・テストカタログ・参照証拠
 ```
 
-## 主要モジュール
+`.gitignore`の対象となるSQLite DB、解析Run、生成レポート、Notebook結果などは、通常のGitコミットには含めません。正式なテストfixtureと、選別された比較用の参照証拠は例外として収録されています。
 
-### `src/openvsppy/vspaero/AnalysisVSPAERO.py`
+## 4. Python APIとNotebookの使用例
 
-OpenVSP Python API を通して VSPAERO 解析を実行します。
-
-主な公開関数は次のとおりです。
-
-- `vsp_sweep()` — 通常の VSPAERO sweep
-- `vsp_trimmed_sweep()` — 迎角を固定し、`CMytot = 0` となるエレベータ舵角を求める trimmed polar
-- `vsp_sweep_wig()` — ground effect を含む sweep / trimmed sweep
-- `vsp_stability_derivatives()` — stability derivatives の計算
-- `validate_vsp3_for_stability_derivatives()` — stability analysis 前のモデル設定確認
-- `make_CDo_correction()` — skin-friction / profile drag の補正
-
-### `src/openvsppy/vspaero/VSPAEROMesh.py`
-
-VSPAERO surface tessellation の **physical mesh equalization** を担当します。
-
-主な公開関数は `equalize_vspaero_tessellation()` です。reference Wing に指定した `Tess_W` を適用し、その実3次元 W-edge median を target mesh size として、各 surface Geom の `Tess_W`、`SectTess_U` / `Tess_U`、active Wing end cap の `CapUMinTess` を調整します。clustering parameter は変更しません。
+リポジトリルートで`src/`がインポート可能な状態から利用します。
 
 ```python
 from openvsppy.vspaero.VSPAEROMesh import equalize_vspaero_tessellation
@@ -325,171 +92,98 @@ report = equalize_vspaero_tessellation(
     reference_wing_name="WingGeom",
     reference_tess_w=65,
 )
-
-print(report[[
-    "geom_name",
-    "u_target_ratio",
-    "w_target_ratio",
-    "cap_target_ratio",
-]])
+print(report[["geom_name", "u_target_ratio", "w_target_ratio", "cap_target_ratio"]])
 ```
 
-処理は、geometry から初期 tessellation count を決めた後、OpenVSP が実際に生成した 3D tessellation edge を再測定し、指定 tolerance を外れる方向だけを少数回補正します。VSPAERO convergence study や post-intersection mesh diagnostics はこの module の責務に含めません。
+この例はOpenVSP Python APIと解析モデルを必要とします。実行前に`results/`などの保存先を作成してください。
 
-### `src/openvsppy/vspaero/VSPAEROStab.py`
+主なNotebookは以下のとおりです。各Notebookの入力・前提条件を確認してください。
 
-VSPAERO `.stab` ファイルの読み取りを担当します。
+| ディレクトリ | 主題 |
+|---|---|
+| `trimmed_polar/` | 縦トリムを考慮したポーラー |
+| `trimmed_ground_effect/` | 地面効果 |
+| `turn-maneuver/` | 定常旋回・ラダー応答・横風突風 |
+| `vv_gamma_chart/` | 垂直尾翼容積比・有効上反角の設計検討 |
+| `wake_convergence/` | Wake反復・後流節点の感度 |
+| `mesh_equalization/` | メッシュ分割の調整 |
+| `view_capture/` | 多方向撮影・アニメーション |
 
-- reference quantities
-- base flight condition
-- base aerodynamic coefficients
-- stability derivatives
-- Control Surface Group と `ConGrp_*` の対応
+これらは`examples/notebooks/`内にあります。一部のNotebookは実行結果や`.stab`など、ZIPに含まれない追加ファイルを必要とします。
 
-を共通形式へ変換し、定常旋回 solver、6DoF simulation、設計チャートから共通利用します。
+## 5. VSPAERO V&Vの実行
 
-### `src/openvsppy/aerodynamics/TrimTurnSolver.py`
+V&Vには、計画書、試験カタログ、レビュー済み入力設定、SQLite、解析結果の証拠ファイルを利用します。解析条件が未設定のCaseや、比較に必要な実験データがないCaseを推測で補完しません。
 
-`.stab` の線形空力モデルを使って定常旋回を解きます。
+### CLIの確認と新規データベース
 
-- `solve_steady_level_turn()`
-- `solve_steady_gliding_turn()`
-- `solve_rudder_limit_turn()`
-
-solver の body axes は `+x` forward、`+y` right、`+z` down です。OpenVSP の body axes とは向きが異なるため、`.stab` の空力係数を solver 内で変換しています。
-
-### `src/openvsppy/aerodynamics/RollRudderGain.py`
-
-`.stab` を飛行力学モデルへ接続し、ラダー入力・横風突風に対する応答を計算します。
-
-主な処理は次のとおりです。
-
-- 線形横・方向応答
-- ラダーステップ 6DoF simulation
-- 1-cosine crosswind gust 6DoF simulation
-- 時刻歴 CSV 出力
-- 時刻歴 plot
-- roll response / gust response の評価指標
-
-### `src/openvsppy/aerodynamics/VVGammaChart.py`
-
-垂直尾翼容積比 `Vv` と主翼の等価上反角 `Gamma_eff` を設計変数として、横・方向特性を比較するための処理をまとめています。
-
-大きな流れは次の2段階です。
-
-```text
-base .vsp3
-  ↓
-Vv / wing tip deflection を変更
-  ↓
-VSPAERO stability derivatives
-  ↓
-case .vsp3 / .stab
+```powershell
+# リポジトリルートにおいて、上記の環境設定後に実行
+$db = 'vv_study\01_database\vv.sqlite'
+python -m openvsppy.vv --help
+python -m openvsppy.vv --db $db init
+python -m openvsppy.vv --db $db plan
 ```
 
-```text
-case .vsp3 / .stab
-  ↓
-Gamma_eff・安定性・旋回・6DoF 指標を後処理
-  ↓
-Vv–Gamma_eff chart
+`init`は新規DBの作成に使います。旧版SQLite DBの移行機能はありません。旧`vv`モジュールのインポートパスにも互換性はありません。**既存DBを直接上書きしたり、試験Runの証拠ファイルを削除したりしないでください。**
+
+### ネイティブ解析と一括実行
+
+OpenVSP 3.50.5のAPIとVSPAERO実行ファイルが使用可能な環境では、個別Caseの確認後に一括処理を実施できます。以下はコマンド例です。
+
+```powershell
+$solver = 'C:\OpenVSP-3.50.5\vspaero.exe'  # 実際のパスに変更
+$pythonExe = (Get-Command python).Source
+$config = 'vv_study\execution.reviewed.json'
+python -m openvsppy.vv --db $db check --case GEO-03-G3 --binary $solver
+python -m openvsppy.vv --db $db execute-all --config $config --binary $solver --python $pythonExe --timeout 3600 --ncpu 4 --verbose
 ```
 
-## OpenVSP model の前提
+個別のCaseは事前にレビュー済み条件で`prepare`・登録する必要があります。`--ncpu`はVSPAEROソルバーのOpenMPスレッド数であり、同時Case数ではありません。詳細な手順、解析モード別タイムアウト、Runの再利用条件、結果確認は[CLI運用ガイド](docs/vv/cli_guide.md)を参照してください。
 
-解析関数は任意の `.vsp3` を無条件に処理できるものではありません。特に stability derivatives や trim では、OpenVSP GUI 側で次の設定を確認してください。
+**`execute-all`による報告書生成やRunの`SUCCEEDED`登録は、V&Vの合格や工学的使用認定を意味しません。** 実機での検証状況・未確認事項は[実装状況](docs/vv/implementation_status.md)と[変更履歴](docs/vv/CHANGELOG.md)に記載しています。
 
-- VSPAERO reference area / chord / span
-- reference point / CG
-- VSPAERO geometry set
-- Thin / Thick geometry の扱い
-- Control Surface Group
-- `Control Group Angles` の有効化状態
-- control surface gain と舵角符号
-- VSPAERO analysis method
-- wake settings
+## 6. テスト
 
-G103A の trimmed-polar workflow では、既存モデルの `WingGeom` と `ELEVATOR_GROUP` を使用します。`ELEVATOR_GROUP` は VSPAERO の `Control Group Angles` で有効化されている必要があります。`vsp_trimmed_sweep()` はこの設定を自動変更せず、無効な場合は解析前にエラーにします。
+通常の回帰テストでは、OpenVSP API、VSPAERO、GUIを使用するテストは**選択対象外（DESELECTED）**です。解析環境なしで実行できる部分と、ネイティブ実行を伴う試験結果を区別してください。
 
-Control Surface Group の名前は `.stab` の `ConGrp_*` と実際の舵を対応させるためにも重要です。G103A と SampleGlider の例では、次の名前を使用しています。
-
-```text
-AILERON_GROUP
-ELEVATOR_GROUP
-RUDDER_GROUP
+```powershell
+python -m pytest -q -rs
 ```
 
-## `.vsp3` と VSPAERO 生成物
+OpenVSP API、VSPAERO、GUIの実行が可能な環境では、必要な区分だけを明示的に選択します。
 
-`examples/models/` には、解析の再現や後処理例に必要な `.vsp3` と一部の VSPAERO 出力を含めています。
+```powershell
+$env:VSPAERO_BINARY = 'C:\OpenVSP-3.50.5\vspaero.exe'  # 実際のパスに変更
+python tools/run_native_pytest.py --marker all-native --list-only
+python tools/run_native_pytest.py --marker native_openvsp --timeout 600
+python tools/run_native_pytest.py --marker native_vspaero --timeout 3600
+python tools/run_native_pytest.py --marker native_solver --timeout 240
+# GUI環境でのみ実行
+python tools/run_native_pytest.py --marker gui --timeout 300
+```
 
-特に `.stab` は、VSPAERO を再実行せずに `VSPAEROStab.py`、`TrimTurnSolver.py`、`RollRudderGain.py` の処理を確認するための reference result として使用します。
+`tools/run_native_pytest.py`はネイティブ試験を別プロセスで隔離実行し、タイムアウト時に子プロセスも終了させます。結果はGit管理外の`native_test_results/`に保存します。自動試験で検査できた範囲と、実機による解析性能の検証範囲を混同しないでください。
 
-`.vspaero`、`.stab`、`.flt`、`.polar` などを同一解析 run の一式として扱う場合は、**Mach、AoA、Reynolds 数、reference quantities、CG、wake settings、control groups などの解析条件をそろえてください**。
+## 7. ドキュメント
 
-`.history`、`.lod`、`.vspgeom` などの一時的な VSPAERO 出力の多くは `.gitignore` の対象です。
+| 文書 | 用途 |
+|---|---|
+| [V&V計画書](docs/vv/plan.md) | 試験目的・範囲・技術的判定方針。文書版数は本文とStudy設定で管理 |
+| [DB詳細仕様書](docs/vv/database_spec.md) | データモデル・状態遷移・証拠管理 |
+| [評価報告書テンプレート](docs/vv/evaluation_report_template.md) | 13章構成のレビュー草稿 |
+| [試験記録テンプレート](docs/vv/test_record_template.md) | Test ID単位の記録 |
+| [DB・報告書フィールド対応表](docs/vv/db_report_field_mapping.md) | DBと報告書の追跡 |
+| [方法論と参考文献](docs/vv/methods_and_references.md) | 採用した手法と一次資料の対応 |
+| [CLI運用ガイド](docs/vv/cli_guide.md) | 最新の実行手順 |
+| [実装状況](docs/vv/implementation_status.md) | 25試験の実装範囲と未検証項目 |
+| [変更履歴](docs/vv/CHANGELOG.md) | 過去の開発記録・版別の変更点 |
 
-## 数値精度と wake convergence
+計画書と報告書テンプレートの**ファイル名は固定**します。計画書の文書版数、Studyの`plan.version`・`plan.sha256`、特定Gitコミットの組合せで、実際に使用した計画の内容を識別できます。計画書本文を改訂した場合は対応するSHA-256を更新し、過去のRunに使用した計画の特定情報を保持してください。
 
-VSPAERO の安定微係数は wake discretization / wake iteration の影響を受けます。特に `CL_p`、`Cl_beta`、`Cn_beta` などを設計指標として使用する場合、1つの wake 設定を無条件に採用せず、対象機体・解析条件ごとに収束を確認してください。
+## 8. 注意事項・ライセンス
 
-このため、`examples/notebooks/wake_convergence/` に `WakeNumIter` と `NumWakeNodes` を変化させる Notebook を置いています。
-
-計算時間が大きい場合も、単に mesh / wake を細かくすればよいとは限りません。必要な微係数が十分収束する最小限の設定を選ぶことを推奨します。
-
-## 関連記事
-
-実装の背景、OpenVSP GUI の設定、空力・飛行力学の理論は以下の記事で詳しく説明しています。
-
-### OpenVSP / VSPAERO
-
-- [【まとめ】OpenVSP入門](https://mtkbirdman.com/openvsp-index)
-- [【OpenVSP入門】インストール](https://mtkbirdman.com/openvsp-install)
-- [【Windows】OpenVSP Python APIのインストール](https://mtkbirdman.com/openvsp-python-api-installation)
-- [OpenVSPのPythonAPIでポーラーカーブを計算する](https://mtkbirdman.com/openvsp-python-api-sweep-analysis)
-- [OpenVSPのPythonAPIで舵角を設定して計算する](https://mtkbirdman.com/openvsp-python-api-control-surface)
-- [OpenVSPのPythonAPIでトリムドポーラーを計算する](https://mtkbirdman.com/openvsp-python-api-trimed-polar)
-- [OpenVSPのPythonAPIで地面効果を計算する](https://mtkbirdman.com/openvsp-python-api-ground-effect)
-- [OpenVSP の Python API で安定微係数を計算する](https://mtkbirdman.com/openvsp-python-api-stability-analysis)
-- [GROB G 103 Twin II の OpenVSPモデル](https://mtkbirdman.com/openvsp-grob-g-103-twin-ii-example)
-- [鳥コン滑空機を想定したSampleGliderのOpenVSPモデル](https://mtkbirdman.com/openvsp-br-sample-glider-example)
-
-### 定常旋回・6DoF
-
-- [航空機の定常旋回運動](https://mtkbirdman.com/turn-maneuver-basis)
-- [航空機の定常旋回パラメータを計算する Python スクリプト](https://mtkbirdman.com/turn-maneuver-trim-parameter-python-script)
-- [航空機のラダーのみ旋回の 6 自由度剛体運動をシミュレーションする Python スクリプト](https://mtkbirdman.com/turn-maneuver-only-rudder-roll-python-script)
-- [航空機の横風突風応答の 6 自由度剛体運動をシミュレーションする Python スクリプト](https://mtkbirdman.com/turn-maneuver-crosswind-gust-python-script)
-
-### 垂直尾翼・上反角設計
-
-- [ラダーのみを用いて旋回する航空機の垂直尾翼・上反角設計](https://mtkbirdman.com/vv-gamma-chart)
-
-## 注意事項
-
-- VSPAERO の結果は、モデル形状だけでなく reference quantities、CG、control group、解析 method、wake settings に依存します。
-- `.stab` を用いる後処理は、その基準状態近傍の線形空力モデルです。大迎角・大横滑り角・大舵角まで線形外挿した結果は、収束していても物理的妥当性を別途確認してください。
-- `TrimTurnSolver.py`、`RollRudderGain.py` は `.stab` に記録された長さ・速度・密度などを暗黙に単位変換しません。質量・慣性モーメントなどの入力値を同じ単位系にそろえてください。
-- OpenVSP / VSPAERO の API や出力形式はバージョンによって変わる可能性があります。
-
-## License
-
-現時点では、このリポジトリ全体に対する `LICENSE` ファイルは置いていません。
-
-また、`examples/models/` に含まれる flight manual、airfoil data、その他第三者由来の資料・データについては、それぞれの権利者・配布元の条件に従ってください。
-## 技術・V&V 統合ベースライン
-
-過去の OpenVSP / VSPAERO mesh 診断、optimizer、rule-calibration dataset を含む技術履歴は、`docs/archive/OpenVSP_VSPAERO_integrated_technical_baseline_2026-09-23_v2.md` に保存しています。現在の実装は `src/openvsppy/vspaero/VSPAEROMesh.py` の physical mesh equalization と `examples/notebooks/mesh_equalization/` を基準にしてください。
-
-## VSPAERO 3.50.5 V&V database (incremental implementation)
-
-`docs/vv/VV_CLI_Guide.md` explains the study database, offline parsing, reproducible run
-records, the strict OpenVSP 3.50.5 worker, and documented limitations. Start with
-`python -m openvsppy.vv init` and `python -m openvsppy.vv plan` from the repository root. This does
-not mean that the included sample aircraft or the VSPAERO solver has been
-validated.
-
-
-## V&V自動化拡張（2026-10-30）
-
-歴史的な実装経緯は[`docs/vv/CHANGELOG.md`](docs/vv/CHANGELOG.md)を参照。現行の操作は[`docs/vv/VV_CLI_Guide.md`](docs/vv/VV_CLI_Guide.md)を優先してください。
+- 解析値の妥当性は、形状・解析モード・座標系・基準量・重心・Control Surface Group、メッシュ・Wake条件、参照データおよび数値収束に依存します。
+- `.stab`による線形モデルの外挿や、VSPAERO内蔵の寄生抗力と外部CD0補正の組合せには適用範囲上の制約があります。
+- OpenVSP、Python API、VSPAEROの仕様はバージョンで異なる場合があります。
+- このリポジトリには現時点でルートの`LICENSE`ファイルがありません。権利・再配布条件は別途確認してください。第三者由来のモデル、フライトマニュアル、エアフォイル等には個別の利用条件が適用される場合があります。

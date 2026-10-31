@@ -14,8 +14,8 @@
 | 報告対象Study ID | 《未設定：Study ID》 |
 | 対象機体・形態 | 《未設定：機体型式、幾何版、G1/G2/G3の定義》 |
 | 対象ソフトウェア | **OpenVSP／VSPAERO 3.50.5**（実行バイナリの同定は未確認） |
-| 上位V&V計画 | `VSPAERO_3.50.5_VV_Plan_v1.1.md` |
-| DB詳細仕様 | `VSPAERO_VV_DB_Program_Spec_v1.0.1.md`／同梱`schema.sql` |
+| 上位V&V計画 | `plan.md` |
+| DB詳細仕様 | `database_spec.md`／同梱`schema.sql` |
 | 対応試験 | 上位計画の全25 Test ID（変更不可） |
 | 対象DBスナップショット | 《未作成：パス、SHA-256、抽出日時UTC》 |
 | プログラムGit Commit／版 | 《未設定：commit／パーサ版／後処理版》 |
@@ -545,7 +545,7 @@ $$
 
 ## 付録A：試験別詳細記録
 
-`Test_Record_Template.md`を試験ごとに複製し、`Test ID`、目的、予定Case、実施Run、原本、変数定義、比較、不確かさ、判定、考察を記録する。25件の各Test IDの独立記録をDBから参照できるようにする。必要に応じて1試験内に複数のQoI・比較条件点を設ける。
+`test_record_template.md`を試験ごとに複製し、`Test ID`、目的、予定Case、実施Run、原本、変数定義、比較、不確かさ、判定、考察を記録する。25件の各Test IDの独立記録をDBから参照できるようにする。必要に応じて1試験内に複数のQoI・比較条件点を設ける。
 
 ## 付録B：図表・原本一覧（Artifact Register）
 
@@ -557,7 +557,7 @@ $$
 
 ## 付録C：報告書とDB項目の対応
 
-詳細は`DB_Report_Field_Mapping.md`を参照する。出力済みのCSVや集計表であってもSQLiteの`dataset`／`quantity`／`comparison`／`assessment`へ辿れることを確認する。DBに保存されないレビュー文章と正式承認記録は、報告書自体の版管理で保全する。
+詳細は`db_report_field_mapping.md`を参照する。出力済みのCSVや集計表であってもSQLiteの`dataset`／`quantity`／`comparison`／`assessment`へ辿れることを確認する。DBに保存されないレビュー文章と正式承認記録は、報告書自体の版管理で保全する。
 
 ## 付録D：計画書の未確定事項O-01～O-09
 
@@ -589,7 +589,7 @@ DBの`run.status`、`comparison.verdict`、`assessment.disposition`の値は、�
 
 ## 付録F：主要参考文献
 
-下記の資料を方法論の参考とする。**規格の全文を無条件に実装・準拠したという主張はしない。** 本プロジェクトに実際に採用した事項は`Methods_and_References.md`の対応表を参照する。
+下記の資料を方法論の参考とする。**規格の全文を無条件に実装・準拠したという主張はしない。** 本プロジェクトに実際に採用した事項は`methods_and_references.md`の対応表を参照する。
 
 1. ASME, *V&V 20-2009 (R2021), Standard for Verification and Validation in Computational Fluid Dynamics and Heat Transfer*. https://www.asme.org/codes-standards/find-codes-standards/standard-for-verification-and-validation-in-computational-fluid-dynamics-and-heat-transfer
 2. AIAA, *G-077-1998 (R2002), Guide for the Verification and Validation of Computational Fluid Dynamics Simulations*. https://webstore.ansi.org/standards/aiaa/AIAA0771998R2002
@@ -600,8 +600,8 @@ DBの`run.status`、`comparison.verdict`、`assessment.disposition`の値は、�
 7. Eça, L. and Hoekstra, M. (2014), *A procedure for the estimation of the numerical uncertainty of CFD calculations based on grid refinement studies*, Journal of Computational Physics 262, 104–130. https://doi.org/10.1016/j.jcp.2014.01.006
 8. Celik, I. B. et al. (2008), *Procedure for estimation and reporting of uncertainty due to discretization in CFD applications*, Journal of Fluids Engineering 130(7), 078001. https://doi.org/10.1115/1.2960953
 9. OpenVSP, *OpenVSP Verification & Validation Studies*, official source tag `OpenVSP_3.50.5`. https://github.com/OpenVSP/OpenVSP/blob/OpenVSP_3.50.5/examples/scripts/python_scripts/report.md
-10. `VSPAERO_3.50.5_VV_Plan_v1.1.md`（本プロジェクト上位計画）
-11. `VSPAERO_VV_DB_Program_Spec_v1.0.1.md`と`schema.sql`、`test_catalog.csv`（本プロジェクトのDB定義）
+10. `plan.md`（本プロジェクト上位計画）
+11. `database_spec.md`と`schema.sql`、`test_catalog.csv`（本プロジェクトのDB定義）
 
 ---
 

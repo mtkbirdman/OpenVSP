@@ -1,4 +1,4 @@
-# VSPAERO V&V — CLI運用ガイド（v20261031.11）
+# VSPAERO V&V — CLI運用ガイド
 
 本書は**現在有効な操作手順**です。旧版の`python -m vv`、`src.VV*`、`vv_study/05_report_templates/`、SQLite `migrate`などの手順は廃止済みで、過去のリリースノートからは実行しないでください。実装の真の引数仕様は`src/openvsppy/vv/__main__.py`（`--help`）です。
 
@@ -6,7 +6,7 @@
 
 - Pythonパッケージ：`src/openvsppy/`、V&V CLI：`python -m openvsppy.vv`、APIワーカー：`python -m openvsppy.vv.worker`。
 - Study設定・承認済み入力：`vv_study/`、DDLとCatalog：`vv_study/01_database/`。
-- 正式文書・雛形：`docs/vv/`。**13章評価報告書テンプレートはファイル名と章見出しを維持する**。
+- 正式文書・雛形：`docs/vv/`。**13章評価報告書テンプレートの章構成と見出しを維持する**。
 - 生成されるSQLite、Run、図表、レポートはStudy側に保存し、Git管理対象外とする。
 - OpenVSP Python APIとVSPAERO実行ファイルは別途必要。`python -m pip install -e .`は**任意**。Notebookは先頭セルの`sys.path`追加のみでソースをimportする。
 
@@ -15,11 +15,11 @@
 新規展開したリポジトリ内で実行する例。ZIP展開先、Conda環境、solverパスは実機に合わせて変更してください。過去データとの互換性を保証するための移行は行いません。必要なら新しいDBで一連の試験を実行してください。
 
 ```powershell
-Set-Location 'C:\Work\OpenVSP-VV_20261031_11\OpenVSP-main'
+Set-Location 'C:\path\to\OpenVSP'
 conda activate vsppytools.3.50.5
 $env:PYTHONPATH = (Resolve-Path '.\src').Path
 $pythonExe = (Get-Command python).Source
-$solver = 'C:\Users\mtkbirdman\OpenVSP-3.50.5-win64\vspaero.exe'
+$solver = 'C:\path\to\OpenVSP-3.50.5\vspaero.exe'
 $db = 'vv_study\01_database\vv_20261031_11.sqlite'
 $config = 'vv_study\execution.reviewed.json'
 
@@ -67,7 +67,7 @@ python -m openvsppy.vv --db $db gci --values 0.1 0.11 0.12 --widths 0.5 1.0 2.0
 
 参照Datasetの登録・比較（`import-reference`、`compare`、`compare-test`）と抗力補正（`drag-run`、`drag`）は、レビュー済みメタデータ・座標系・正規化条件の一致を必要とします。具体的な引数は`python -m openvsppy.vv <command> --help`を参照してください。暗黙の軸変換・検証未済の物理量認定はしません。
 
-## 5. VSPAERO NCPUの指定方法（v20261031.11）
+## 5. VSPAERO NCPUの指定方法
 
 `NCPU`は**各VSPAEROソルバーのOpenMPスレッド数**です。Studyの`runtime.processes=1`は同時に起動する解析ワーカープロセス数であり、NCPUとは異なります。`--jobs`も同時実行のためのパラメータです（現在は1のみ対応）。
 
@@ -114,10 +114,10 @@ Caseごとに指定したい場合は、**Case登録前**のCase JSONで次の�
 
 ## 8. 文書体系
 
-- 正本：`VSPAERO_3.50.5_VV_Plan_v1.1.md`、`VSPAERO_VV_DB_Program_Spec_v1.0.1.md`
-- 固定雛形：`VSPAERO_3.50.5_VV_Evaluation_Report_Template_v0.1.md`、`Test_Record_Template.md`
-- 付属：`DB_Report_Field_Mapping.md`、`Methods_and_References.md`
-- 運用：**本書**、`VV_Implementation_Status.md`、`CHANGELOG.md`
+- 正本：`plan.md`、`database_spec.md`
+- 固定雛形：`evaluation_report_template.md`、`test_record_template.md`
+- 付属：`db_report_field_mapping.md`、`methods_and_references.md`
+- 運用：**本書**、`implementation_status.md`、`CHANGELOG.md`
 
 ## 9. 受入と未検証範囲
 
@@ -133,7 +133,7 @@ python -m openvsppy.vv --db $db execute-all --config $config --binary $solver --
 
 画面進捗は**標準エラー出力（stderr）**、最終JSONは**標準出力（stdout）**へ分離します。全イベントを`vv_study/04_reports/execute_*/progress.jsonl`に逐次記録します。Windows PowerShellには両方が表示されます。既存のRun成功判定・ソルバー設定・`--timeout`は変更しません。`--no-run`は解析を実行せず、報告書生成のフェーズ進捗のみ表示します。結果が`REVIEW_REPORT_GENERATED`でも全Caseの成功を意味しません。
 
-## 10. pytestの通常実行とNative実行（v20261031.9）
+## 10. pytestの通常実行とNative実行
 
 v20261031.9から、**通常の `python -m pytest -q -rs` はOpenVSP API・VSPAERO・GUIを起動しません**。`pyproject.toml` にマーカーを集約し、旧 `pytest.ini` および `RUN_VSPAERO_INTEGRATION` / `RUN_OPENVSP_GUI_TESTS` のオプトイン方式を廃止しました。通常の回帰でネイティブケースを含めないのは意図的な `DESELECTED` であり、API/Solverの実証結果ではありません。
 
@@ -166,7 +166,7 @@ Native試験は`isolated_model`・`native_workspace` fixtureを用いてモデ�
 **`native_solver`の診断モデルは正式なGEO-03-G3ではありません。** 添付Ubuntu版VSPAEROで成功したG103Aの診断コピーから、Control Group数0、Wake反復1の`.vspgeom/.vspaero/.vkey/.csf`を`tests/fixtures/native_solver_smoke/`に収録しています。ソルバーを独立起動して `.polar/.history/.lod/.adb`を検査し、`.history`を既存Parserで再読込します。これはAPI経由の20 Wake解析、25 Test IDの合格判定、数値解の収束性を証明しません。LinuxのOpenVSP 3.50.5 Python APIにはPython 3.12と`libcminpack.so.1`等の共有ライブラリが必要です。依存関係不足の環境ではAPI試験をPASSとしません。
 
 
-## 7. v20261031.11：失敗診断・Adjoint・Case別タイムアウト
+## 11. 失敗診断・Adjoint・Case別タイムアウト
 
 `execute-all`は各Caseに対して検証可能な状態を残し、正常終了済みのCaseだけでなく、失敗したCaseも報告書に記録します。V&Vの工学的合否は参照データ、数値収束、不確かさを検討した後に人間が判断します。
 

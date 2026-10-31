@@ -28,11 +28,11 @@ def study_factory(request):
         (folder / '00_plan').mkdir(parents=True)
         (folder / '01_database').mkdir(exist_ok=True)
         (folder / '03_run_raw').mkdir(exist_ok=True)
-        shutil.copy2(ROOT / 'docs/vv/VSPAERO_3.50.5_VV_Plan_v1.1.md', folder / '00_plan')
+        shutil.copy2(ROOT / 'docs/vv/plan.md', folder / '00_plan')
         for name in ('schema.sql', 'test_catalog.csv'):
             shutil.copy2(ROOT / 'vv_study/01_database' / name, folder / '01_database')
         settings = json.loads((ROOT / 'vv_study/study.json').read_text(encoding='utf-8'))
-        settings['plan']['file'] = '00_plan/VSPAERO_3.50.5_VV_Plan_v1.1.md'
+        settings['plan']['file'] = '00_plan/plan.md'
         (folder / 'study.json').write_text(json.dumps(settings, ensure_ascii=False), encoding='utf-8')
         (folder / 'manifest.json').write_text('{}', encoding='utf-8')
         db = VVDatabase(folder / '01_database/vv.sqlite')

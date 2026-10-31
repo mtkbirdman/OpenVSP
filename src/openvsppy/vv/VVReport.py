@@ -48,7 +48,7 @@ def write_evaluation_report(db, destination, *, study_path=None, selected_runs=N
     import re
     destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True)
     template=(REPO_ROOT/'docs'/'vv'/
-             'VSPAERO_3.50.5_VV_Evaluation_Report_Template_v0.1.md')
+             'evaluation_report_template.md')
     document=template.read_text(encoding='utf-8')
     study=db.conn.execute('SELECT * FROM study LIMIT 1').fetchone()
     source_info=['**自動集計証拠（未承認）**','',

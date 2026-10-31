@@ -29,8 +29,8 @@
 - **R-07** Eça & Hoekstra, *Journal of Computational Physics* 262, 104–130 (2014): https://doi.org/10.1016/j.jcp.2014.01.006
 - **R-08** Celik et al., *Journal of Fluids Engineering* 130(7), 078001 (2008): https://doi.org/10.1115/1.2960953
 - **R-09** OpenVSP 3.50.5 official V&V: https://github.com/OpenVSP/OpenVSP/blob/OpenVSP_3.50.5/examples/scripts/python_scripts/report.md
-- **P-01** 同梱`reference/VSPAERO_3.50.5_VV_Plan_v1.1.md`
-- **P-02** 同梱`reference/VSPAERO_VV_DB_Program_Spec_v1.0.1.md`、`schema.sql`、`test_catalog.csv`
+- **P-01** 同梱`docs/vv/plan.md`
+- **P-02** 同梱`docs/vv/database_spec.md`、`vv_study/01_database/schema.sql`、`vv_study/01_database/test_catalog.csv`
 
 ## 3. 重要な用語と本文での使い分け
 

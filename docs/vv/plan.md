@@ -10,7 +10,7 @@
 | 目的 | 新規導入に向けた、用途・評価量・飛行条件を限定したV&Vおよび使用可否判断 |
 | 参照データ | 既存パネル法ソルバー、Navier–Stokes（NS）解析、風洞試験 |
 | 状態 | **計画書改訂版。機体固有の飛行条件、参照データ所在、要求精度は未確定。解析・認定は未実施** |
-| 対応する結果データベース | `VSPAERO_VV_DB_Program_Spec_v1.0.1.md`／`schema.sql`／`study.example.json`／`test_catalog.csv`。SQLiteを正本とし、Test・Case・Run・Pointの識別子で連携する |
+| 対応する結果データベース | `database_spec.md`／`schema.sql`／`study.example.json`／`test_catalog.csv`。SQLiteを正本とし、Test・Case・Run・Pointの識別子で連携する |
 
 > **重要な区別**：本書はV&Vの**実施計画**であり、VSPAEROの性能・精度が既に認定されたことを示すものではない。本文の「推奨基準値」はプロジェクトの試験開始値であって、公式が保証する最適設定ではない。最終的な標準解析条件と適用範囲は、試験結果に基づいて認定する。
 
@@ -452,7 +452,7 @@ C_{D,\mathrm{B}}(\alpha)=CDiw(\alpha)
 
 データ管理の**唯一の編集可能な正本はSQLite（`vv.sqlite`）**とする。ExcelおよびCSVはDBから生成するレビュー・配布用の成果物であり、手修正したExcelの数値を確認なしにDBへ逆輸入しない。ネイティブ出力と外部参照の原本はDB外で不可変に保管する。初期段階でSQLサーバーやGUIは要求しない。
 
-詳細なテーブル名・主キー・制約・状態遷移は、下位文書`VSPAERO_VV_DB_Program_Spec_v1.0.1.md`および付属`schema.sql`を参照する。本計画では次の識別子を必須とする。
+詳細なテーブル名・主キー・制約・状態遷移は、下位文書`database_spec.md`および付属`schema.sql`を参照する。本計画では次の識別子を必須とする。
 
 | 識別子 | 役割と関係 |
 |---|---|
@@ -567,7 +567,7 @@ C_{D,\mathrm{B}}(\alpha)=CDiw(\alpha)
 ```text
 VSPAERO_VV/
   00_plan/
-    VSPAERO_3.50.5_VV_Plan_v1.1.md
+    plan.md
   01_geometry/
   02_reference_data/
   03_run_raw/

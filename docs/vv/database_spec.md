@@ -6,7 +6,7 @@
 | 版数 | 1.0.1（上位計画書v1.1への参照追従。機能変更なし） |
 | 作成日 | 2026-10-21 |
 | 対象 | OpenVSP/VSPAERO 3.50.5、複雑な全機形状（胴体・主翼・水平尾翼・垂直尾翼） |
-| 上位計画 | `VSPAERO_3.50.5_VV_Plan_v1.1.md`、SHA-256は同梱`study.example.json`に格納 |
+| 上位計画 | `plan.md`、SHA-256は同梱`study.example.json`に格納 |
 | 既存コード | `OpenVSP-main_20260927_trimmed_sweep_activeflag_v1.zip` 内 `src/` と `tests/` |
 | 仕様付属品 | `schema.sql`、`study.example.json`、`test_catalog.csv` |
 | 成果物 | SQLite正本、実行・参照の生データ、Excel/CSVレビュー出力、比較図および判定記録 |
@@ -444,7 +444,7 @@ SW-01～14のうちAPI不要の検査は単体テストで実施。WindowsのOpe
 
 ## 13. 参考・トレーサビリティ
 
-- 上位計画書：`VSPAERO_3.50.5_VV_Plan_v1.1.md` 第3～12章および付録。
+- 上位計画書：`plan.md` 第3～12章および付録。
 - 利用者提供のコード：`OpenVSP-main_20260927_trimmed_sweep_activeflag_v1.zip`、特に`AnalysisVSPAERO.py`、`VSPAEROMesh.py`、`VSPAEROStab.py`、`util.py`。
 - OpenVSP 3.50.5ソース：https://github.com/OpenVSP/OpenVSP/tree/OpenVSP_3.50.5 （ソースと配布バイナリの対応は別途実機確認）。
 - 公式API：https://openvsp.org/api_docs/latest/group___analysis.html 、https://openvsp.org/api_docs/latest/group___results.html （「latest」は3.50.5固定ではないため入力の最終確認は対象実行環境で行う）。

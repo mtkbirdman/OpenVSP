@@ -3,9 +3,9 @@
   "study_id": "VSP3505-VV-001",
   "name": "VSPAERO 3.50.5 whole-aircraft V&V",
   "plan": {
-    "file": "00_plan/VSPAERO_3.50.5_VV_Plan_v1.1.md",
+    "file": "00_plan/plan.md",
     "version": "1.1",
-    "sha256": "31a30e103fbdbc9268b9a390cf2b4d8b29df6f611f25fb938a8b08fd150b7130"
+    "sha256": "d699486564082163c199ebb5c030832727cef07524d36e9f41c6dee5df90143d"
   },
   "runtime": {
     "openvsp_version_required": "3.50.5",

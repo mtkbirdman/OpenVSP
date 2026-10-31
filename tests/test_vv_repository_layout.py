@@ -20,31 +20,34 @@ DOCS = ROOT / 'docs/vv'
 
 def test_vv_document_set_is_canonical():
     expected = {
-        "VSPAERO_3.50.5_VV_Plan_v1.1.md",
-        "VSPAERO_VV_DB_Program_Spec_v1.0.1.md",
-        "VSPAERO_3.50.5_VV_Evaluation_Report_Template_v0.1.md",
-        "Test_Record_Template.md",
-        "DB_Report_Field_Mapping.md",
-        "Methods_and_References.md",
-        "VV_CLI_Guide.md",
-        "VV_Implementation_Status.md",
+        "plan.md",
+        "database_spec.md",
+        "evaluation_report_template.md",
+        "test_record_template.md",
+        "db_report_field_mapping.md",
+        "methods_and_references.md",
+        "cli_guide.md",
+        "implementation_status.md",
         "CHANGELOG.md",
     }
     present = {p.name for p in DOCS.rglob("*.md")}
-    assert expected <= present
+    assert expected == present
     assert all(p.parent == DOCS for p in DOCS.rglob("*.md"))
     assert not (DOCS / "history").exists()
+    assert not (ROOT / "tools/compare_g103a_direct.py").exists()
+    assert (ROOT / "tools/run_native_pytest.py").is_file()
 
 
 def test_plan_still_matches_reviewed_study_sha256():
     study = json.loads((ROOT / "vv_study" / "study.json").read_text(encoding="utf-8"))
     path = (ROOT / "vv_study" / study["plan"]["file"]).resolve()
-    assert path == DOCS / "VSPAERO_3.50.5_VV_Plan_v1.1.md"
+    assert path == DOCS / "plan.md"
+    assert study["plan"]["version"] == "1.1"
     assert hashlib.sha256(path.read_bytes()).hexdigest() == study["plan"]["sha256"]
 
 
 def test_report_template_keeps_thirteen_chapter_headers():
-    template = (DOCS / "VSPAERO_3.50.5_VV_Evaluation_Report_Template_v0.1.md").read_text(encoding="utf-8")
+    template = (DOCS / "evaluation_report_template.md").read_text(encoding="utf-8")
     assert [int(n) for n in re.findall(r"(?m)^## (\d+)\.", template)] == list(range(1, 14))
 
 
@@ -67,6 +70,17 @@ def test_study_docs_and_package_layout():
     assert not (REPO_ROOT/'src/VVRunner.py').exists()
     assert not (REPO_ROOT/'vv/__main__.py').exists()
     assert len(execution_fingerprint(REPO_ROOT)) == 64
+
+
+def test_reference_evidence_matches_manifest_bytes():
+    """Canonical native evidence must survive ZIP/Git round-trips byte-for-byte."""
+    evidence = ROOT / 'vv_study/02_reference/20261031_api_vs_direct'
+    manifest = json.loads((evidence / 'EVIDENCE_MANIFEST.json').read_text(encoding='utf-8'))
+    for relative, expected in manifest['files'].items():
+        path = evidence / relative
+        assert path.is_file(), relative
+        assert path.stat().st_size == expected['size_bytes'], relative
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected['sha256'], relative
 
 
 def test_checkout_cli_and_worker_from_independent_working_directory(tmp_path):

@@ -1,4 +1,17 @@
-## v20261031.11 — 一気通貫のV&V実行を優先したNative障害対応
+# CHANGELOG — OpenVSP/VSPAERO V&V（統合版）
+
+本書は旧`docs/vv/`内のRelease Notes、実装・仕様Matrix、Windows実行ガイド、過去のテスト結果など**29件を破壊的に統合した開発記録**です。過去の操作コマンドは当時の構成を示す記録であり、現行CLIではありません。現行操作は`cli_guide.md`、現行実装状況は`implementation_status.md`を参照してください。
+
+## 文書体系の整理（2026-10-31）
+
+- `docs/vv/`の運用ファイル名を固定し、計画書・DB仕様・評価報告書雛形もファイル名から版数を除去。文書内の正式な版数と既存の技術的な試験条件は維持。
+- 現行パスの参照をコード・設定・テスト・文書で更新。`README.md`を日本語で再構成し、一度限りの比較スクリプトを現行ツリーから削除（過去コミットには残存）。
+- 上位計画書は文書間参照のファイル名だけを修正したため、元のSHA-256 `31a30e103fbdbc9268b9a390cf2b4d8b29df6f611f25fb938a8b08fd150b7130` から `d699486564082163c199ebb5c030832727cef07524d36e9f41c6dee5df90143d` に変化。新規Studyの`plan.sha256`は更新済み。**過去のStudy・Runが参照した旧ハッシュを改変しないこと。**
+- WindowsのGitチェックアウトで計画書とネイティブ証拠のバイト列が書き換わらないよう、`.gitattributes`で改行変換を制限。旧版の表記・記録は履歴として保持。
+
+## 最近の変更
+
+### v20261031.11 — 一気通貫のV&V実行を優先したNative障害対応
 
 - 実際のThin/Thick Geometry Setに合わせてControl Groupを無効化し、部分的に欠落したGroup・不明な親形状・非ゼロ偏向の欠落Groupを明確に拒否。承認済みGain・偏向符号を保全。
 - `VSPAEROComputeGeometry`後に`.vspgeom`・`.vkey`の構造検査を追加。異常なNRef等では入力を勝手に修正せず、`mesh_diagnostics.json`に証拠を保存してソルバー起動前に停止。
@@ -7,7 +20,7 @@
 - 本体のVSPAERO呼出しは引き続きPython API。Wake反復数・NCPU・制御舵面Gain・SQLite schema・V&V計画書は変更しない。
 - Windowsで観測済みの障害に対応する回帰テストを追加。オフラインの回帰結果とWindows実機でのNative再実行結果は区別する。
 
-## v20261031.10 — VSPAERO NCPU実行時指定
+### v20261031.10 — VSPAERO NCPU実行時指定
 
 - `run`、`run-test`、`execute-all`に`--ncpu`を追加（正の整数のみ）。Case JSONの`numerical_setting.requested.vspaero.NCPU`も認識し、省略時は従来どおり1。
 - 明示したCLI値はRun実行時のみ優先され、レビュー済みCase/setting_id、G103Aモデル、Study/DB Schema、V&V計画書は変更しない。
@@ -15,7 +28,7 @@
 - 再利用時はNCPU一致を必須化。過去版Run（NCPU記録なし）は安全側に再利用しない。旧Runを消去/変更しない。
 - APIスタブ・CLI・DB・再利用制御のオフライン回帰試験を追加。**123 PASS / 13 DESELECTED**、Linux/Windows 3.50.5実機での新NCPU値は未検証。
 
-# v20261031.8 — テスト構成の整理（2026-10-31）
+### v20261031.8 — テスト構成の整理（2026-10-31）
 
 - Release-date based `test_vv_20261031*.py` and monolithic V&V test files were reorganized into 9 feature-based files.
 - `tests/conftest.py` now provides a single isolated Study/SQLite fixture factory and seeded Case fixture; equivalent duplicate test setup was removed.
@@ -23,11 +36,8 @@
 - Test coverage and native evidence fixtures are retained. No production Python code, approved G103A input, SQLite schema or V&V plan is changed.
 - Offline baseline: 103 PASS / 8 SKIP (same test population as v20261031.7). Native Windows VSPAERO execution NOT performed in this release.
 
-# CHANGELOG — OpenVSP/VSPAERO V&V（統合版）
 
-本書は旧`docs/vv/`内のRelease Notes、実装・仕様Matrix、Windows実行ガイド、過去のテスト結果など**29件を破壊的に統合した開発記録**です。過去の操作コマンドは当時の構成を示す記録であり、現行CLIではありません。現行操作は`VV_CLI_Guide.md`、現行実装状況は`VV_Implementation_Status.md`を参照してください。
-
-## 1. リリース別の要点
+## リリース別の要点
 
 | 版 | 変更の概要 | 検証範囲・留保 |
 |---|---|---|
@@ -73,22 +83,22 @@
 
 ## 5. 統合元の文書台帳
 
-以下はv20261031.5の同梱文書から統合したものです。**本文をそのまま連結しておらず、現行コードと整合する事項および歴史的な事実に整理しました**。正本6件はハッシュを保ってそのまま残しています。元の全内容が必要な場合は配布元`OpenVSP-main_v20261031.5.zip`を参照してください。
+以下はv20261031.5の同梱文書から統合したものです。**本文をそのまま連結しておらず、現行コードと整合する事項および歴史的な事実に整理しました**。当時は正本6件のハッシュを保って残しました（現在の計画書は上記のとおり参照先の整理でSHA-256が変化しています）。元の全内容が必要な場合は配布元`OpenVSP-main_v20261031.5.zip`を参照してください。
 
 | 統合元（旧`docs/vv/`基準） | 統合先 |
 |---|---|
 | `RELEASE_NOTES_v20261031.5.md` | `CHANGELOG.md` |
-| `REVIEWED_20261031_V2_README.md` | `VV_CLI_Guide.md` |
-| `VV_CLI_Guide.md` | `VV_CLI_Guide.md` |
-| `VV_FULLVV_SPEC_MATRIX.md` | `VV_Implementation_Status.md` |
-| `VV_IMPLEMENTATION_MATRIX_20261031.md` | `VV_Implementation_Status.md` |
-| `VV_IMPLEMENTATION_STATUS.md` | `VV_Implementation_Status.md` |
-| `VV_LAYOUT_SPEC_MATRIX_v20261031.5.md` | `VV_Implementation_Status.md` |
-| `VV_SPEC_IMPLEMENTATION_MATRIX_20261030.md` | `VV_Implementation_Status.md` |
-| `VV_SPEC_MATRIX_20261031.1.md` | `VV_Implementation_Status.md` |
-| `VV_SPEC_MATRIX_20261031.2.md` | `VV_Implementation_Status.md` |
-| `VV_SPEC_MATRIX_20261031.4.md` | `VV_Implementation_Status.md` |
-| `history/EXECUTE_ALL_GUIDE_20261031.md` | `VV_CLI_Guide.md` |
+| `REVIEWED_20261031_V2_README.md` | `cli_guide.md` |
+| `VV_CLI_Guide.md` | `cli_guide.md` |
+| `VV_FULLVV_SPEC_MATRIX.md` | `implementation_status.md` |
+| `VV_IMPLEMENTATION_MATRIX_20261031.md` | `implementation_status.md` |
+| `VV_IMPLEMENTATION_STATUS.md` | `implementation_status.md` |
+| `VV_LAYOUT_SPEC_MATRIX_v20261031.5.md` | `implementation_status.md` |
+| `VV_SPEC_IMPLEMENTATION_MATRIX_20261030.md` | `implementation_status.md` |
+| `VV_SPEC_MATRIX_20261031.1.md` | `implementation_status.md` |
+| `VV_SPEC_MATRIX_20261031.2.md` | `implementation_status.md` |
+| `VV_SPEC_MATRIX_20261031.4.md` | `implementation_status.md` |
+| `history/EXECUTE_ALL_GUIDE_20261031.md` | `cli_guide.md` |
 | `history/FULLVV_CHANGELOG.md` | `CHANGELOG.md` |
 | `history/RELEASE_NOTES_v20261030.md` | `CHANGELOG.md` |
 | `history/RELEASE_NOTES_v20261031.0.md` | `CHANGELOG.md` |
@@ -103,8 +113,8 @@
 | `history/VV_CLI_Guide_pre_v20261031.5.md` | `CHANGELOG.md` |
 | `history/WINDOWS_API_DIAGNOSTICS_v20261031.3.md` | `CHANGELOG.md` |
 | `history/WINDOWS_FIX_13_FAILURES.md` | `CHANGELOG.md` |
-| `history/WINDOWS_FULLVV_GUIDE.md` | `VV_CLI_Guide.md` |
-| `history/WINDOWS_GUIDE_v20261031.1.md` | `VV_CLI_Guide.md` |
-| `history/WINDOWS_GUIDE_v20261031.2.md` | `VV_CLI_Guide.md` |
+| `history/WINDOWS_FULLVV_GUIDE.md` | `cli_guide.md` |
+| `history/WINDOWS_GUIDE_v20261031.1.md` | `cli_guide.md` |
+| `history/WINDOWS_GUIDE_v20261031.2.md` | `cli_guide.md` |
 
 > この台帳は文書移動の追跡を目的とします。統合先の記述は、最新仕様と履歴を明確に区別しています。削除前の元文書は今回のZIPには再収録していません。
