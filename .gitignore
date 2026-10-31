@@ -171,6 +171,8 @@ cython_debug/
 *.slc
 *.lod
 *.history
+# Preserve the small curated parser fixture despite the generic solver-output ignore.
+!/tests/fixtures/vspaero/api_vs_direct/direct_success_outputs/model_effective.history
 *.fem
 *.vspgeom
 *.vkey
@@ -207,11 +209,8 @@ desktop.ini
 vv_study/01_database/*.sqlite
 vv_study/01_database/*.sqlite-*
 vv_study/03_run_raw/
+/vv_study/02_reference/
 vv_study/04_reports/
-vv_study/02_reference/panel/*
-vv_study/02_reference/ns/*
-vv_study/02_reference/wind_tunnel/*
-vv_study/02_reference/external_cd0/*
 vv_study/study.private.json
 vv_study/case.json
 

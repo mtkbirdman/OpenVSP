@@ -14,7 +14,7 @@ OpenVSP / VSPAEROをPythonから利用し、航空機の空力解析・飛行力
 | 可視化 | `.vsp3`の複数方向撮影、PNG合成、GIF・MP4アニメーション | `src/openvsppy/visualization/` |
 | V&V | 試験定義、実行管理、SQLite記録、結果比較・評価、図表・報告書生成 | `src/openvsppy/vv/` |
 
-解析用のモデルとNotebookは`examples/`に、V&Vの設定と保存対象の参照証拠は`vv_study/`にあります。
+解析モデル・Notebook・設定例は`examples/`、V&Vの仕様とテンプレートは`docs/vv/`、実際のStudy設定と実行時の参照データは`vv_study/`で管理します。回帰テストに必要な固定データは`tests/fixtures/`に配置します。
 
 ## 2. 動作環境
 
@@ -68,16 +68,18 @@ OpenVSP/
 │   └── vv/                     # V&V CLI・DB・ワーカー・報告
 ├── examples/
 │   ├── models/                 # 解析モデルと付属データ
-│   └── notebooks/              # 解析・可視化の実行例
+│   ├── notebooks/              # 解析・可視化の実行例
+│   └── vv/                     # V&V設定・参照データの使用例
 ├── tests/                      # オフライン・ネイティブ・GUIテスト
 │   └── fixtures/               # テストに必要な固定データ
 ├── tools/
 │   └── run_native_pytest.py    # ネイティブテストの隔離実行
 ├── docs/vv/                    # V&V計画・仕様・運用・履歴
-└── vv_study/                   # V&V設定・テストカタログ・参照証拠
+│   └── templates/              # 報告書・試験記録・設定・調査表のひな形
+└── vv_study/                   # 現行Study設定・試験カタログ・実行時データ
 ```
 
-`.gitignore`の対象となるSQLite DB、解析Run、生成レポート、Notebook結果などは、通常のGitコミットには含めません。正式なテストfixtureと、選別された比較用の参照証拠は例外として収録されています。
+`.gitignore`の対象となるSQLite DB、解析Run、生成レポート、Notebook結果などは、通常のGitコミットには含めません。回帰テストに必要な選別済みfixtureのみを収録し、一時的な比較調査の原本は別アーカイブに保管します。
 
 ## 4. Python APIとNotebookの使用例
 
@@ -171,15 +173,17 @@ python tools/run_native_pytest.py --marker gui --timeout 300
 |---|---|
 | [V&V計画書](docs/vv/plan.md) | 試験目的・範囲・技術的判定方針。文書版数は本文とStudy設定で管理 |
 | [DB詳細仕様書](docs/vv/database_spec.md) | データモデル・状態遷移・証拠管理 |
-| [評価報告書テンプレート](docs/vv/evaluation_report_template.md) | 13章構成のレビュー草稿 |
-| [試験記録テンプレート](docs/vv/test_record_template.md) | Test ID単位の記録 |
+| [評価報告書テンプレート](docs/vv/templates/evaluation_report.md) | 13章構成のレビュー草稿 |
+| [試験記録テンプレート](docs/vv/templates/test_record.md) | Test ID単位の記録 |
 | [DB・報告書フィールド対応表](docs/vv/db_report_field_mapping.md) | DBと報告書の追跡 |
 | [方法論と参考文献](docs/vv/methods_and_references.md) | 採用した手法と一次資料の対応 |
 | [CLI運用ガイド](docs/vv/cli_guide.md) | 最新の実行手順 |
 | [実装状況](docs/vv/implementation_status.md) | 25試験の実装範囲と未検証項目 |
 | [変更履歴](docs/vv/CHANGELOG.md) | 過去の開発記録・版別の変更点 |
+| [設定・報告書テンプレート](docs/vv/templates/README.md) | 新規Study・Case・参照メタデータ、報告書のひな形 |
+| [V&V設定の使用例](examples/vv/) | 具体的なG103A解析条件・参照値の例（正式承認とは別） |
 
-計画書と報告書テンプレートの**ファイル名は固定**します。計画書の文書版数、Studyの`plan.version`・`plan.sha256`、特定Gitコミットの組合せで、実際に使用した計画の内容を識別できます。計画書本文を改訂した場合は対応するSHA-256を更新し、過去のRunに使用した計画の特定情報を保持してください。
+計画書およびテンプレートの**ファイル名は固定**します。計画書の文書版数、Studyの`plan.version`・`plan.sha256`、特定Gitコミットの組合せで、実際に使用した計画の内容を識別できます。計画書本文を改訂した場合は対応するSHA-256を更新し、過去のRunに使用した計画の特定情報を保持してください。
 
 ## 8. 注意事項・ライセンス
 

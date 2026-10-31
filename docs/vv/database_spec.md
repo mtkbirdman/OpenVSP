@@ -6,9 +6,9 @@
 | 版数 | 1.0.1（上位計画書v1.1への参照追従。機能変更なし） |
 | 作成日 | 2026-10-21 |
 | 対象 | OpenVSP/VSPAERO 3.50.5、複雑な全機形状（胴体・主翼・水平尾翼・垂直尾翼） |
-| 上位計画 | `plan.md`、SHA-256は同梱`study.example.json`に格納 |
+| 上位計画 | `plan.md`、SHA-256は`templates/study.json`に格納 |
 | 既存コード | `OpenVSP-main_20260927_trimmed_sweep_activeflag_v1.zip` 内 `src/` と `tests/` |
-| 仕様付属品 | `schema.sql`、`study.example.json`、`test_catalog.csv` |
+| 仕様付属品 | `vv_study/01_database/schema.sql`、`templates/study.json`、`vv_study/01_database/test_catalog.csv` |
 | 成果物 | SQLite正本、実行・参照の生データ、Excel/CSVレビュー出力、比較図および判定記録 |
 
 > **本文の位置付け**：これはプログラムの実装仕様であってVSPAEROのValidation済み証明ではない。`schema.sql`はSQLiteで構文検査済み、実行ライフサイクル・OpenVSP API連携は未実装・未実機検証である。計画書で未決の飛行条件、基準面積、審査者、要求精度は勝手に補完しない。
@@ -47,7 +47,7 @@
 | `VVPostprocess.py` | `.polar`/`.stab`等の取り込み、QoI定義、数値収束、中央差分、ドラッグ補正、参照照合、比較と根拠生成 |
 | `VVReport.py` | ケース一覧・Excel/CSV・図・状態/判定一覧の出力。正本は変更しない |
 
-`schema.sql`はDB構造の正本、`test_catalog.csv`は上位計画書の25件のTest IDカタログ、`study.example.json`は設定例とする。
+`schema.sql`はDB構造の正本、`test_catalog.csv`は上位計画書の25件のTest IDカタログ、`templates/study.json`は新規Study設定のひな形とする。
 
 ### 2.3 想定コマンド
 

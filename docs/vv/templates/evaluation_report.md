@@ -545,7 +545,7 @@ $$
 
 ## 付録A：試験別詳細記録
 
-`test_record_template.md`を試験ごとに複製し、`Test ID`、目的、予定Case、実施Run、原本、変数定義、比較、不確かさ、判定、考察を記録する。25件の各Test IDの独立記録をDBから参照できるようにする。必要に応じて1試験内に複数のQoI・比較条件点を設ける。
+`test_record.md`を試験ごとに複製し、`Test ID`、目的、予定Case、実施Run、原本、変数定義、比較、不確かさ、判定、考察を記録する。25件の各Test IDの独立記録をDBから参照できるようにする。必要に応じて1試験内に複数のQoI・比較条件点を設ける。
 
 ## 付録B：図表・原本一覧（Artifact Register）
 
@@ -557,7 +557,7 @@ $$
 
 ## 付録C：報告書とDB項目の対応
 
-詳細は`db_report_field_mapping.md`を参照する。出力済みのCSVや集計表であってもSQLiteの`dataset`／`quantity`／`comparison`／`assessment`へ辿れることを確認する。DBに保存されないレビュー文章と正式承認記録は、報告書自体の版管理で保全する。
+詳細は`../db_report_field_mapping.md`を参照する。出力済みのCSVや集計表であってもSQLiteの`dataset`／`quantity`／`comparison`／`assessment`へ辿れることを確認する。DBに保存されないレビュー文章と正式承認記録は、報告書自体の版管理で保全する。
 
 ## 付録D：計画書の未確定事項O-01～O-09
 

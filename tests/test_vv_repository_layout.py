@@ -22,8 +22,6 @@ def test_vv_document_set_is_canonical():
     expected = {
         "plan.md",
         "database_spec.md",
-        "evaluation_report_template.md",
-        "test_record_template.md",
         "db_report_field_mapping.md",
         "methods_and_references.md",
         "cli_guide.md",
@@ -31,8 +29,21 @@ def test_vv_document_set_is_canonical():
         "CHANGELOG.md",
     }
     present = {p.name for p in DOCS.rglob("*.md")}
-    assert expected == present
-    assert all(p.parent == DOCS for p in DOCS.rglob("*.md"))
+    assert expected == {p.name for p in DOCS.glob("*.md")}
+    assert {p.name for p in (DOCS / "templates").glob("*.md")} == {
+        "README.md", "evaluation_report.md", "test_record.md"
+    }
+    assert {p.name for p in (DOCS / "templates").glob("*.json")} == {
+        "case.json", "execution.json", "study.json", "reference.json"
+    }
+    assert {p.name for p in (ROOT / "examples/vv").iterdir()} == {
+        "g103a_baseline.json", "reference.csv"
+    }
+    assert {p.name for p in (DOCS / "templates/research").glob("*.csv")} == {
+        "extracted_values.csv", "open_items.csv", "reference_coverage.csv",
+        "source_register.csv", "test_coverage.csv"
+    }
+    assert not (ROOT / "vv_study/02_reference/20261031_api_vs_direct").exists()
     assert not (DOCS / "history").exists()
     assert not (ROOT / "tools/compare_g103a_direct.py").exists()
     assert (ROOT / "tools/run_native_pytest.py").is_file()
@@ -47,7 +58,7 @@ def test_plan_still_matches_reviewed_study_sha256():
 
 
 def test_report_template_keeps_thirteen_chapter_headers():
-    template = (DOCS / "evaluation_report_template.md").read_text(encoding="utf-8")
+    template = (DOCS / "templates/evaluation_report.md").read_text(encoding="utf-8")
     assert [int(n) for n in re.findall(r"(?m)^## (\d+)\.", template)] == list(range(1, 14))
 
 
@@ -74,8 +85,9 @@ def test_study_docs_and_package_layout():
 
 def test_reference_evidence_matches_manifest_bytes():
     """Canonical native evidence must survive ZIP/Git round-trips byte-for-byte."""
-    evidence = ROOT / 'vv_study/02_reference/20261031_api_vs_direct'
-    manifest = json.loads((evidence / 'EVIDENCE_MANIFEST.json').read_text(encoding='utf-8'))
+    evidence = ROOT / 'tests/fixtures/vspaero/api_vs_direct'
+    manifest = json.loads((evidence / 'FIXTURE_MANIFEST.json').read_text(encoding='utf-8'))
+    assert len(manifest['files']) == 3
     for relative, expected in manifest['files'].items():
         path = evidence / relative
         assert path.is_file(), relative
@@ -107,3 +119,13 @@ def test_notebooks_bootstrap_src_without_editable_install():
         assert all(c.get('outputs', []) == [] for c in nb['cells'] if c['cell_type']=='code')
         assert all(c.get('execution_count') is None for c in nb['cells'] if c['cell_type']=='code')
         assert not any('from src.' in ''.join(c['source']) for c in nb['cells'] if c['cell_type']=='code')
+
+
+def test_template_paths_and_example_distinction():
+    template = json.loads((DOCS / "templates/study.json").read_text(encoding="utf-8"))
+    assert template["plan"]["file"] == "../docs/vv/plan.md"
+    assert template["test_catalog_csv"] == "01_database/test_catalog.csv"
+    assert template["plan"]["sha256"] == hashlib.sha256((DOCS / "plan.md").read_bytes()).hexdigest()
+    assert (ROOT / "vv_study/study.json").is_file()
+    assert not (ROOT / "vv_study/case.example.json").exists()
+    assert not (ROOT / "vv_study/g103a_baseline.example.json").exists()

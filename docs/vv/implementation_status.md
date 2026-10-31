@@ -73,7 +73,7 @@ v11ではControl Group/Native Mesh事前検査・Native異常分類・Adjoint詳
 |---|---|
 | 計画書 | `docs/vv/plan.md` |
 | DB仕様 | `docs/vv/database_spec.md` |
-| 報告書テンプレート | `docs/vv/evaluation_report_template.md` |
+| 報告書テンプレート | `docs/vv/templates/evaluation_report.md` |
 | 解析条件 | `vv_study/*.reviewed.json`、`vv_study/execution.reviewed.json` |
 | ソース | `src/openvsppy/vv/` |
 | SQL/Catalog | `vv_study/01_database/` |

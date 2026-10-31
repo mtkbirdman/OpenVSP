@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_cli_prepare_register_and_run_test_guard(study,tmp_path,capsys, configured_case):
     from openvsppy.vv.__main__ import main
     root,db,cond=configured_case
-    template=json.loads((ROOT/'vv_study/case.example.json').read_text())
+    template=json.loads((ROOT/'docs/vv/templates/case.json').read_text())
     template['geometry']['vsp3_source']=str(ROOT/'examples/models/CRM-HS/CRM-HS.vsp3')
     template['flight_condition']=cond
     template['numerical_setting']['requested']={

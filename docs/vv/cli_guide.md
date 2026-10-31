@@ -115,7 +115,7 @@ Caseごとに指定したい場合は、**Case登録前**のCase JSONで次の�
 ## 8. 文書体系
 
 - 正本：`plan.md`、`database_spec.md`
-- 固定雛形：`evaluation_report_template.md`、`test_record_template.md`
+- 固定雛形：`templates/evaluation_report.md`、`templates/test_record.md`
 - 付属：`db_report_field_mapping.md`、`methods_and_references.md`
 - 運用：**本書**、`implementation_status.md`、`CHANGELOG.md`
 

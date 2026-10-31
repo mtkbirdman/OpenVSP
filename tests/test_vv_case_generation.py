@@ -142,7 +142,7 @@ def test_hershey_benchmark_uses_halfspan_and_verified_symmetry(tmp_path, monkeyp
 
 def test_pqr_and_geometry_recipe_require_review(study,tmp_path):
     root,_=study
-    case=json.loads((ROOT/'vv_study/g103a_baseline.example.json').read_text(encoding='utf-8'))
+    case=json.loads((ROOT/'examples/vv/g103a_baseline.json').read_text(encoding='utf-8'))
     case['geometry']['vsp3_source']=str(ROOT/'examples/models/G103A/G103A.vsp3')
     path=tmp_path/'base.json';path.write_text(json.dumps(case))
     with pytest.raises(ValueError,match='reviewed'):
@@ -172,7 +172,7 @@ def test_generated_vspaero_settings_fixture():
 def test_prepare_wake_without_solver(study,tmp_path, configured_case):
     from openvsppy.vv.VVAutomation import prepare_cases
     root,db,cond=configured_case
-    case=json.loads((ROOT/'vv_study/case.example.json').read_text())
+    case=json.loads((ROOT/'docs/vv/templates/case.json').read_text())
     case['geometry']['vsp3_source']=str(ROOT/'examples/models/CRM-HS/CRM-HS.vsp3')
     case['flight_condition']=cond
     case['numerical_setting']['requested']={'thin_set_index':3,'thick_set_index':4,
@@ -197,7 +197,7 @@ def test_prepare_wake_without_solver(study,tmp_path, configured_case):
 def test_prepare_ctrl_requires_verified_groups(study,tmp_path, configured_case):
     from openvsppy.vv.VVAutomation import prepare_cases
     root,db,cond=configured_case
-    case=json.loads((ROOT/'vv_study/case.example.json').read_text())
+    case=json.loads((ROOT/'docs/vv/templates/case.json').read_text())
     case['geometry']['vsp3_source']=str(ROOT/'examples/models/CRM-HS/CRM-HS.vsp3')
     case['flight_condition']=cond
     case['numerical_setting']['requested']={'control_group_names':{},'control_sign_verified':False}
@@ -215,7 +215,7 @@ def test_prepare_ctrl_requires_verified_groups(study,tmp_path, configured_case):
 def test_prepare_val_needs_explicit_span(study,tmp_path, configured_case):
     from openvsppy.vv.VVAutomation import prepare_cases
     root,_,cond=configured_case
-    case=json.loads((ROOT/'vv_study/case.example.json').read_text())
+    case=json.loads((ROOT/'docs/vv/templates/case.json').read_text())
     case['flight_condition']=cond
     baseline=tmp_path/'base.json';baseline.write_text(json.dumps(case))
     with pytest.raises(ValueError,match='span'):
@@ -227,7 +227,7 @@ def test_prepare_val_needs_explicit_span(study,tmp_path, configured_case):
 def test_wake_02_preserves_reviewed_baseline_iterations(study,tmp_path, configured_case):
     from openvsppy.vv.VVAutomation import prepare_cases
     root,db,cond=configured_case
-    case=json.loads((ROOT/'vv_study/case.example.json').read_text())
+    case=json.loads((ROOT/'docs/vv/templates/case.json').read_text())
     case['flight_condition']=cond
     case['numerical_setting']['requested']['vspaero']={'WakeNumIter':20,'RootWakeNodes':8}
     baseline=tmp_path/'baseline.json';baseline.write_text(json.dumps(case))

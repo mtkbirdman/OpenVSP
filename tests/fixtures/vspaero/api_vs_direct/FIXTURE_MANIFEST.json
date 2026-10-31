@@ -1,0 +1,17 @@
+{
+  "description": "Minimal immutable fixtures extracted from the 2026-10-31 API vs direct solver comparison. Full original evidence is archived separately.",
+  "files": {
+    "api_failed_inputs/model_effective.vspaero": {
+      "sha256": "c9057c0c34705786b51635f30590c73a830ce122449a2d49cf3e9653247d4cf4",
+      "size_bytes": 1111
+    },
+    "direct_success_outputs/model_effective.history": {
+      "sha256": "ad74290986de1c9f30f1829604e62b9c45e5146e6a15cfff9f234078e68b4891",
+      "size_bytes": 20587
+    },
+    "direct_success_outputs/model_effective.polar": {
+      "sha256": "a52e837028b90f9d66fe92dbb719f1c465914fad94e7e745b3eb5712c77b8901",
+      "size_bytes": 3025
+    }
+  }
+}

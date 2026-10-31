@@ -47,7 +47,7 @@ def test_nonfinite_optional_polar_value_is_not_turned_into_zero(tmp_path):
 
 def test_offline_direct_evidence_parsers_and_wake_count():
     from openvsppy.vv.VVPostprocess import read_polar,read_history,read_vspaero_settings
-    evidence=Path(__file__).resolve().parents[1]/'vv_study/02_reference/20261031_api_vs_direct'
+    evidence=Path(__file__).resolve().parents[1]/'tests/fixtures/vspaero/api_vs_direct'
     polar=read_polar(evidence/'direct_success_outputs/model_effective.polar')
     history=read_history(evidence/'direct_success_outputs/model_effective.history')
     setup=read_vspaero_settings(evidence/'api_failed_inputs/model_effective.vspaero')

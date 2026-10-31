@@ -3,4 +3,3 @@ docs/vv/plan.md text eol=lf
 
 # Solver/reference evidence is byte-for-byte immutable (including native CRLF and binary formats).
 tests/fixtures/** -text
-vv_study/02_reference/20261031_api_vs_direct/** -text
