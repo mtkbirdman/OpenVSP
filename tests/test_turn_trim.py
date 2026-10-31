@@ -9,13 +9,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.TrimTurnSolver import (
+from openvsppy.aerodynamics.TrimTurnSolver import (
     solve_rudder_limit_turn,
     solve_steady_gliding_turn,
     solve_steady_level_turn,
 )
 
-STAB_PATH = REPO_ROOT / "examples" / "models" / "SampleGlider" / "SampleGlider.stab"
+STAB_PATH = REPO_ROOT / "tests" / "fixtures" / "SampleGlider_native_3.50.5.stab"
 MASS_KG = 100.0
 RHO_KG_M3 = 1.225
 SPEED_M_S = 10.0

@@ -1,0 +1,102 @@
+{
+  "case_id": "GRID-01-MEDIUM",
+  "execute_policy": "EXECUTE",
+  "geometry": {
+    "geometry_id": "G103A-M0-20261031-REVIEWED-01",
+    "stage": "G3",
+    "vsp3_source": "examples/models/G103A/G103A.vsp3",
+    "physical_model": {
+      "wing": "Thin",
+      "horizontal_tail": "Thin",
+      "vertical_tail": "Thin",
+      "fuselage": "Thick",
+      "tail_fairing": "EXCLUDED_FROM_SELECTED_SETS",
+      "aircraft_variant": "G103A_TWIN_II_ACRO",
+      "purpose": "USER_REVIEWED_EXPLORATORY_VV_BASELINE"
+    },
+    "representation": {
+      "thin_set_name": "ThinGeom",
+      "thick_set_name": "ThickGeom"
+    },
+    "remarks": "G103A M0; Thin Set 4: Wing/HTail/VTail, Thick Set 3: Fuselage, TailFairing excluded. Model-native Sref/Bref/Cref/moment XYZ and physical control gains/directions user-approved on 2026-10-31; numerical V&V validity and measured solver output remain to be assessed."
+  },
+  "flight_condition": {
+    "condition_id": "FC-G103A-ISA-SL-105KMH-A2-20261031-REVIEWED",
+    "mach": 0.0857102,
+    "re_cref": 2120000.0,
+    "alpha_deg": 2.0,
+    "beta_deg": 0.0,
+    "controls_deg": {
+      "elevator": 0.0,
+      "aileron": 0.0,
+      "rudder": 0.0
+    },
+    "trim_mode": "FIXED_CONTROL",
+    "sref": 17.88185312625759,
+    "bref": 17.536552870371967,
+    "cref": 1.0624862547003904,
+    "moment_x": 2.87,
+    "moment_y": 0.0,
+    "moment_z": 0.164,
+    "reference_length_unit": "m",
+    "axes_convention_id": "G103A_MODEL_NATIVE_NOT_CROSS_CODE_ALIGNED"
+  },
+  "numerical_setting": {
+    "setting_id": "G103A-M0-ISA-SL-WAKE20-20261031-REVIEWED",
+    "analysis_mode": "STEADY_SWEEP",
+    "mesh_level": "AS_SAVED_BASELINE",
+    "requested": {
+      "thin_set_index": 4,
+      "thick_set_index": 3,
+      "vspaero": {
+        "WakeNumIter": 20,
+        "RootWakeNodes": 8,
+        "FixedWakeFlag": false,
+        "NRef": 0,
+        "ImplicitWake": false,
+        "Symmetry": false,
+        "Vinf": 29.166666666666664,
+        "Rho": 1.225
+      },
+      "control_group_names": {
+        "elevator": "ELEVATOR_GROUP",
+        "aileron": "AILERON_GROUP",
+        "rudder": "RUDDER_GROUP"
+      },
+      "control_sign_verified": true,
+      "geometry_membership_reviewed": true,
+      "geometry_membership": {
+        "thin": [
+          "WingGeom",
+          "HTailGeom",
+          "VTailGeom"
+        ],
+        "thick": [
+          "FuselageGeom"
+        ]
+      },
+      "control_gains_reviewed": {
+        "elevator": {
+          "Surf_IBJGZQKXFM_0_Gain": 1.0,
+          "Surf_IBJGZQKXFM_1_Gain": -1.0
+        },
+        "aileron": {
+          "Surf_YUESKTHJKH_0_Gain": 1.0,
+          "Surf_YUESKTHJKH_1_Gain": 1.0
+        },
+        "rudder": {
+          "Surf_ANFQIKDKMO_0_Gain": -1.0
+        }
+      },
+      "unsteady_settings_reviewed": true,
+      "native_pqr_defaults": {
+        "solver": "OpenVSP/VSPAERO 3.50.5",
+        "expected_time_steps": 128,
+        "expected_amplitude_deg": 5.0,
+        "expected_wake_iterations": 25,
+        "expected_wake_nodes": 32,
+        "status": "SOURCE_CODE_CANDIDATE_REQUIRES_WINDOWS_OUTPUT_AUDIT"
+      }
+    }
+  }
+}

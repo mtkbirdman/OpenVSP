@@ -1,0 +1,211 @@
+{
+  "_review": {
+    "configuration_status": "USER_REVIEWED_EXPLORATORY_TEST_INPUTS_NOT_VV_APPROVAL",
+    "created_for": "OpenVSP-main_v20261031.2",
+    "study_id": "VSP3505-VV-001",
+    "model": "examples/models/G103A/G103A.vsp3",
+    "aircraft": "GROB G 103 A Twin II Acro",
+    "aerodynamic_sets": {
+      "thick": {
+        "index": 3,
+        "geometry": [
+          "FuselageGeom"
+        ]
+      },
+      "thin": {
+        "index": 4,
+        "geometry": [
+          "WingGeom",
+          "HTailGeom",
+          "VTailGeom"
+        ]
+      },
+      "excluded": [
+        "TailFairing"
+      ]
+    },
+    "candidate_note": "User confirmed physical control gain/sign mapping, model-native reference area/length/moment center, and permission to specify SI Vinf/Rho. ISA sea-level density is 1.225 kg/m3, Vinf=105/3.6 m/s, Mach=0.0857102 at 288.15 K, ReCref=2.12e6 is an approximate value. Selection of wake=20 is a trial condition, not numerical convergence. Existing resolved case IDs cannot be overwritten; use a new DB or controlled migration. No engineering V&V pass is implied.",
+    "configured_exploratory_tests": [
+      "GEO-01",
+      "GEO-02",
+      "GEO-03",
+      "GRID-01",
+      "GRID-02",
+      "WAKE-01",
+      "WAKE-02",
+      "WAKE-03",
+      "STA-01",
+      "STA-02",
+      "CTRL-01",
+      "CTRL-02",
+      "CTRL-03",
+      "GEO-04",
+      "GRID-03",
+      "STA-03",
+      "DRAG-01",
+      "DRAG-02",
+      "VER-01",
+      "VER-02"
+    ],
+    "not_configured_reasons": {
+      "XCD-01": "External panel-method data and associated metadata not supplied",
+      "XCD-02": "Navier-Stokes reference data and associated metadata not supplied",
+      "VAL-01": "Wind-tunnel data and alpha span not supplied",
+      "VAL-02": "Wind-tunnel data and beta span not supplied",
+      "ACC-01": "Automatic report aggregation (not an aerodynamic solver Case)"
+    },
+    "grid_levels_status": "CODE_DEFAULT_CANDIDATES_NOT_APPROVED_EFFECTIVE_MESH_WIDTHS",
+    "run_selection_status": "NO_RUN_ID_ASSIGNED_CURRENT_DB_NOT_VERIFIED",
+    "external_reference_status": "NO_REAL_REFERENCE_DATA_PROVIDED",
+    "reviewed_at": "2026-10-31",
+    "model_native_reference_accepted": {
+      "sref_m2": 17.88185312625759,
+      "bref_m": 17.536552870371967,
+      "cref_m": 1.0624862547003904,
+      "moment_xyz_m": [
+        2.87,
+        0.0,
+        0.164
+      ]
+    },
+    "isa_sea_level": {
+      "altitude_m": 0,
+      "temperature_k": 288.15,
+      "pressure_pa": 101325,
+      "velocity_mps": 29.166666666666664,
+      "density_kg_m3": 1.225,
+      "mach": 0.0857102,
+      "re_cref_approx": 2120000.0,
+      "density_source": "ISA sea-level approximation",
+      "density_note": "The saved .vsp3 Rho=0.002377 is a legacy imperial-unit default; reviewed cases override with consistent SI values."
+    },
+    "control_surface_mapping_user_confirmed": {
+      "elevator": {
+        "group": "ELEVATOR_GROUP",
+        "gains": {
+          "Surf_IBJGZQKXFM_0_Gain": 1.0,
+          "Surf_IBJGZQKXFM_1_Gain": -1.0
+        },
+        "physical_sign_agreed": true
+      },
+      "aileron": {
+        "group": "AILERON_GROUP",
+        "gains": {
+          "Surf_YUESKTHJKH_0_Gain": 1.0,
+          "Surf_YUESKTHJKH_1_Gain": 1.0
+        },
+        "physical_sign_agreed": true
+      },
+      "rudder": {
+        "group": "RUDDER_GROUP",
+        "gains": {
+          "Surf_ANFQIKDKMO_0_Gain": -1.0
+        },
+        "physical_sign_agreed": true
+      }
+    },
+    "study_condition_choices": {
+      "GEO-04": "IMPLEMENTED_RECIPE: common G103A vs WingGeom-only Thick; OpenVSP 3.50.5 native verification pending",
+      "GRID-02": "Second incidence alpha=6 degrees, all other flight parameters equal to GRID-01",
+      "GRID-03": "IMPLEMENTED_RECIPE: LECluster 0.25/0.50/1.00, and NRef 0/1 (4 Cases), no fuselage local refinement yet",
+      "WAKE-02": "WakeNumIter=20 candidate, RootWakeNodes=[8,12,16]",
+      "WAKE-03": "Explicit vs Implicit with candidate 20 iterations and 8 wake nodes; Fixed not in current roles",
+      "STA-02": "GRID-01 Medium/Fine meshes; WakeNumIter=5/20, comparable configurations only",
+      "STA-03": "CONFIGURED P/Q/R using native 3.50.5 modes; actual .pstab/.qstab/.rstab and effective time integration not yet proven",
+      "CTRL-01": "Elevator deflections [-10,-5,-2,0,2,5,10] deg, group and physical sign user-confirmed",
+      "CTRL-02": "Aileron deflections [-10,-5,-2,0,2,5,10] deg, group and physical sign user-confirmed",
+      "CTRL-03": "Rudder deflections [-10,-5,-2,0,2,5,10] deg, group and physical sign user-confirmed",
+      "DRAG-01": "Method A auto correction connected to explicit GEO-03-G3 selected polar and ParasiteDrag geometry set 5; physical model review pending",
+      "DRAG-02": "Method B uses native CDo from explicit GEO-03-G3 baseline point; physical adequacy and double-counting review pending",
+      "VER-01": "Hershey Bar symmetric full-span 10 m: geometry BBox half-span 5 m; 3 candidate mesh Cases, theory/load comparison pending",
+      "VER-02": "Mach 0.001 (observed 3.50.5 effective value); explicit Ellipsoid Tess_U/Tess_W levels (20/21, 30/31, 40/41), NRef=0; native Cp/theory and additional orientations pending; new DB required",
+      "ACC-01": "Generated from study-wide results, no solver run"
+    },
+    "runtime_conditions": {
+      "STA-02": "Requires GRID-01 MEDIUM and FINE .vsp3 to have been generated first; execute-all prepares baselines in JSON order.",
+      "CTRL": "Worker must read back group active flags and all Gain Parm values; sign confirmation is based on user review of G103A model.",
+      "existing_database": "Same planned Case IDs with different resolved metadata cannot be overwritten. Backup and initialize separate DB for new scenario.",
+      "VER-02": "Native Windows logs: NRef=1/2 produced degenerate VSPGEOM surface/loop counts and no polar. Changed candidate grid scheme, not experimentally verified until Windows run."
+    },
+    "automated_drag_note": "Uses reviewed G103A source geometry and numerical input; CD0 physical adequacy remains unapproved",
+    "planned_case_count": "Initial 68; add GRID-03-NREF_1 as 69th with backup before DB update. VER expansion to full official benchmark matrices not implemented."
+  },
+  "baselines": {
+    "GEO-01": "g103a_baseline.reviewed.json",
+    "GEO-02": "g103a_baseline.reviewed.json",
+    "GEO-03": "g103a_baseline.reviewed.json",
+    "GRID-01": "g103a_baseline.reviewed.json",
+    "GRID-02": "g103a_grid02.reviewed.json",
+    "WAKE-01": "g103a_baseline.reviewed.json",
+    "WAKE-02": "g103a_baseline.reviewed.json",
+    "WAKE-03": "g103a_baseline.reviewed.json",
+    "STA-01": "g103a_baseline.reviewed.json",
+    "STA-02": "g103a_sta02.reviewed.json",
+    "CTRL-01": "g103a_baseline.reviewed.json",
+    "CTRL-02": "g103a_baseline.reviewed.json",
+    "CTRL-03": "g103a_baseline.reviewed.json",
+    "GEO-04": "g103a_baseline.reviewed.json",
+    "GRID-03": "g103a_baseline.reviewed.json",
+    "STA-03": "g103a_baseline.reviewed.json",
+    "VER-01": "ver-01_benchmark.reviewed.json",
+    "VER-02": "ver-02_benchmark.reviewed.json"
+  },
+  "case_files": [],
+  "spans_deg": {},
+  "grid_levels": {
+    "GRID-01": {
+      "COARSE": 21,
+      "MEDIUM": 31,
+      "FINE": 49
+    },
+    "GRID-02": {
+      "COARSE": 21,
+      "MEDIUM": 31,
+      "FINE": 49
+    }
+  },
+  "grid_widths": {},
+  "references": [],
+  "parasite_drag_runs": [],
+  "comparisons": [],
+  "drag_corrections": [],
+  "run_selection": {},
+  "auto_drag": {
+    "source_id": "G103A_105KMH_ISA_SEALEVEL_CD0_CANDIDATE_v1",
+    "model": "../examples/models/G103A/G103A.vsp3",
+    "geometry_names": [
+      "FuselageGeom",
+      "WingGeom",
+      "HTailGeom",
+      "VTailGeom"
+    ],
+    "geom_set": 5,
+    "velocity_mps": 29.166666666666664,
+    "altitude_m": 0,
+    "delta_temp_k": 0,
+    "source_case_ids": [
+      "GEO-03-G3"
+    ],
+    "baseline_case_id": "GEO-03-G3",
+    "methods": [
+      "A",
+      "B"
+    ]
+  },
+  "benchmark_models": [
+    {
+      "test_id": "VER-01",
+      "kind": "HERSHEY_BAR",
+      "output": "generated/benchmarks/VER-01.vsp3"
+    },
+    {
+      "test_id": "VER-02",
+      "kind": "ELLIPSOID",
+      "output": "generated/benchmarks/VER-02.vsp3"
+    }
+  ],
+  "timeouts_seconds_by_mode": {
+    "ADJOINT": 10800
+  },
+  "timeouts_seconds_by_case": {}
+}

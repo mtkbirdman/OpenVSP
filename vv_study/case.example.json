@@ -1,0 +1,56 @@
+{
+  "case_id": "GRID-01-MEDIUM",
+  "execute_policy": "EXECUTE",
+  "geometry": {
+    "geometry_id": "G3-MEDIUM-MODEL-ID",
+    "stage": "G3",
+    "vsp3_source": "C:/VV_MODELS/approved_whole_aircraft_medium.vsp3",
+    "physical_model": {
+      "wing": "Thin",
+      "horizontal_tail": "Thin",
+      "vertical_tail": "Thin",
+      "fuselage": "Thick"
+    },
+    "representation": {
+      "thin_set_name": "VV_THIN",
+      "thick_set_name": "VV_THICK"
+    }
+  },
+  "flight_condition": {
+    "condition_id": "FC-UNIQUE-ID",
+    "mach": null,
+    "re_cref": null,
+    "alpha_deg": null,
+    "beta_deg": 0.0,
+    "controls_deg": {
+      "elevator": 0.0,
+      "aileron": 0.0,
+      "rudder": 0.0
+    },
+    "trim_mode": "FIXED_CONTROL",
+    "sref": null,
+    "bref": null,
+    "cref": null,
+    "moment_x": null,
+    "moment_y": null,
+    "moment_z": null,
+    "reference_length_unit": "m",
+    "axes_convention_id": null
+  },
+  "numerical_setting": {
+    "setting_id": "MESH-MEDIUM-WAKE-5",
+    "analysis_mode": "STEADY_SWEEP",
+    "mesh_level": "MEDIUM",
+    "requested": {
+      "thin_set_index": null,
+      "thick_set_index": null,
+      "vspaero": {
+        "WakeNumIter": 5,
+        "RootWakeNodes": 8,
+        "FixedWakeFlag": false
+      },
+      "control_group_names": {},
+      "control_sign_verified": false
+    }
+  }
+}

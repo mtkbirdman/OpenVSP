@@ -1,0 +1,86 @@
+{
+  "case_id": "GRID-01-MEDIUM",
+  "execute_policy": "EXECUTE",
+  "geometry": {
+    "geometry_id": "G103A-M0-20261031-REVIEWED-01",
+    "stage": "G3",
+    "vsp3_source": "examples/models/G103A/G103A.vsp3",
+    "physical_model": {
+      "aircraft_variant": "HERSHEY_BAR",
+      "purpose": "VER-01_OFFICIAL_BENCHMARK"
+    },
+    "representation": {
+      "thin_set_name": "ThinGeom",
+      "thick_set_name": "ThickGeom"
+    },
+    "remarks": "Automatically generated OpenVSP 3.50.5 benchmark; reference values and Cp comparison require source-based cross-check"
+  },
+  "flight_condition": {
+    "condition_id": "VER-01-BENCHMARK-FC",
+    "mach": 0.1,
+    "re_cref": 2000000.0,
+    "alpha_deg": 2.0,
+    "beta_deg": 0.0,
+    "controls_deg": {},
+    "trim_mode": "FIXED_CONTROL",
+    "sref": 10.0,
+    "bref": 10.0,
+    "cref": 1.0,
+    "moment_x": 0.0,
+    "moment_y": 0.0,
+    "moment_z": 0.0,
+    "reference_length_unit": "m",
+    "axes_convention_id": "VER-01_MODEL_NATIVE_NOT_THEORY_ALIGNED"
+  },
+  "numerical_setting": {
+    "setting_id": "G103A-M0-ISA-SL-WAKE20-20261031-REVIEWED",
+    "analysis_mode": "STEADY_SWEEP",
+    "mesh_level": "AS_SAVED_BASELINE",
+    "requested": {
+      "thin_set_index": 4,
+      "thick_set_index": -1,
+      "vspaero": {
+        "WakeNumIter": 3,
+        "RootWakeNodes": 8,
+        "FixedWakeFlag": false,
+        "NRef": 0,
+        "ImplicitWake": false,
+        "Symmetry": false,
+        "Vinf": 29.166666666666664,
+        "Rho": 1.225
+      },
+      "control_group_names": {},
+      "control_sign_verified": true,
+      "geometry_membership_reviewed": true,
+      "geometry_membership": {
+        "thin": [
+          "HersheyWing"
+        ],
+        "thick": []
+      },
+      "control_gains_reviewed": {},
+      "unsteady_settings_reviewed": true,
+      "native_pqr_defaults": {
+        "solver": "OpenVSP/VSPAERO 3.50.5",
+        "expected_time_steps": 128,
+        "expected_amplitude_deg": 5.0,
+        "expected_wake_iterations": 25,
+        "expected_wake_nodes": 32,
+        "status": "SOURCE_CODE_CANDIDATE_REQUIRES_WINDOWS_OUTPUT_AUDIT"
+      }
+    }
+  },
+  "benchmark": {
+    "test_id": "VER-01",
+    "vsp3_source": "generated/benchmarks/VER-01.vsp3",
+    "geometry_membership": {
+      "thin": [
+        "HersheyWing"
+      ],
+      "thick": []
+    },
+    "thin_set_index": 4,
+    "thick_set_index": -1,
+    "wing_name": "HersheyWing"
+  }
+}

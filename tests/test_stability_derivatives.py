@@ -4,23 +4,20 @@ import sys
 import numpy as np
 import pytest
 
-vsp = pytest.importorskip("openvsp")
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.AnalysisVSPAERO import (
-    validate_vsp3_for_stability_derivatives,
-    vsp_stability_derivatives,
-)
 
 MODEL_PATH = REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
 WAKE_NUM_NODES = 32
 
 
-def test_stability_derivative_preflight_accepts_saved_g103a_configuration():
-    report = validate_vsp3_for_stability_derivatives(MODEL_PATH, verbose=0)
+@pytest.mark.native_openvsp
+def test_stability_derivative_preflight_accepts_saved_g103a_configuration(native_openvsp, isolated_model):
+    from openvsppy.vspaero.AnalysisVSPAERO import validate_vsp3_for_stability_derivatives
+    model = isolated_model(MODEL_PATH)
+    report = validate_vsp3_for_stability_derivatives(model, verbose=0)
 
     assert report["passed"], report["errors"]
     assert report["errors"] == []
@@ -48,9 +45,9 @@ def test_stability_derivative_preflight_accepts_saved_g103a_configuration():
 @pytest.mark.parametrize(
     ("stability_type", "expected_name", "expected_suffix"),
     [
-        (vsp.STABILITY_DEFAULT, "STABILITY_DEFAULT", ".stab"),
+        ("STABILITY_DEFAULT", "STABILITY_DEFAULT", ".stab"),
         pytest.param(
-            vsp.STABILITY_ADJOINT,
+            "STABILITY_ADJOINT",
             "STABILITY_ADJOINT",
             ".adjoint.stab",
             marks=pytest.mark.slow,
@@ -59,13 +56,20 @@ def test_stability_derivative_preflight_accepts_saved_g103a_configuration():
     ],
     ids=["default", "adjoint"],
 )
+@pytest.mark.native_vspaero
 def test_stability_derivatives_return_finite_data_and_preserve_requested_settings(
     stability_type,
     expected_name,
     expected_suffix,
+    native_vspaero_api,
+    isolated_model,
 ):
+    vsp = native_vspaero_api
+    from openvsppy.vspaero.AnalysisVSPAERO import vsp_stability_derivatives
+    model = isolated_model(MODEL_PATH)
+    stability_type = getattr(vsp, stability_type)
     report = vsp_stability_derivatives(
-        MODEL_PATH,
+        model,
         alpha=2.0,
         mach=0.1,
         reynolds=4.4e6,

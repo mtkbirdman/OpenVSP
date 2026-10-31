@@ -1,0 +1,16 @@
+{
+  "kind": "WIND_TUNNEL",
+  "source_id": "REPLACE_WITH_TEST_REPORT_REFERENCE",
+  "usage_class": "REFERENCE",
+  "evidence_class": null,
+  "axes_convention_id": null,
+  "sref": null,
+  "bref": null,
+  "cref": null,
+  "mach": null,
+  "re_cref": null,
+  "alpha_deg": null,
+  "beta_deg": null,
+  "uncertainty_status": "NOT_PROVIDED",
+  "notes": "Illustrative template only; do not treat values as measured data."
+}

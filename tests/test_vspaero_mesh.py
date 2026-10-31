@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.VSPAEROMesh import equalize_vspaero_tessellation
+from openvsppy.vspaero.VSPAEROMesh import equalize_vspaero_tessellation
 
 MODEL_PATH = REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
 
@@ -52,14 +52,16 @@ def test_equalize_rejects_invalid_settings(tmp_path):
         )
 
 
-def test_equalize_saves_selected_wing_and_active_end_cap(tmp_path):
-    vsp = pytest.importorskip("openvsp")
-    from src.util import find_container_parm, find_one_geom
+@pytest.mark.native_openvsp
+def test_equalize_saves_selected_wing_and_active_end_cap(native_openvsp, isolated_model, native_workspace):
+    vsp = native_openvsp
+    from openvsppy.core.util import find_container_parm, find_one_geom
 
-    output_path = tmp_path / "G103A_equalized.vsp3"
+    output_path = native_workspace / "G103A_equalized.vsp3"
+    model_path = isolated_model(MODEL_PATH)
 
     report = equalize_vspaero_tessellation(
-        input_vsp3_path=MODEL_PATH,
+        input_vsp3_path=model_path,
         output_vsp3_path=output_path,
         reference_wing_name="WingGeom",
         reference_tess_w=65,

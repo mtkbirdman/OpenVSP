@@ -1,0 +1,62 @@
+{
+  "case_id": "GRID-01-MEDIUM",
+  "execute_policy": "EXECUTE",
+  "geometry": {
+    "geometry_id": "G103A-AS_SAVED-G3-UNVERIFIED-01",
+    "stage": "G3",
+    "vsp3_source": "examples/models/G103A/G103A.vsp3",
+    "physical_model": {
+      "wing": "Thin",
+      "horizontal_tail": "Thin",
+      "vertical_tail": "Thin",
+      "fuselage": "Thick",
+      "tail_fairing": "EXCLUDED_FROM_SELECTED_SETS",
+      "aircraft_variant": "G103A_TWIN_II_ACRO",
+      "purpose": "INPUT_BASELINE_FOR_CANDIDATE_STUDIES_NOT_CERTIFIED"
+    },
+    "representation": {
+      "thin_set_name": "ThinGeom",
+      "thick_set_name": "ThickGeom"
+    },
+    "remarks": "For local candidate V&V experiments. Confirm units, axes, geometry provenance, and mesh before engineering approval."
+  },
+  "flight_condition": {
+    "condition_id": "FC-G103A-SMOKE-105KMH-ISA-SL-A2",
+    "mach": 0.0857,
+    "re_cref": 2120000.0,
+    "alpha_deg": 2.0,
+    "beta_deg": 0.0,
+    "controls_deg": {
+      "elevator": 0.0,
+      "aileron": 0.0,
+      "rudder": 0.0
+    },
+    "trim_mode": "FIXED_CONTROL",
+    "sref": 17.88185312625759,
+    "bref": 17.536552870371967,
+    "cref": 1.0624862547003904,
+    "moment_x": 2.87,
+    "moment_y": 0.0,
+    "moment_z": 0.164,
+    "reference_length_unit": "m",
+    "axes_convention_id": "MODEL_NATIVE_UNVERIFIED_SMOKE"
+  },
+  "numerical_setting": {
+    "setting_id": "G103A-SMOKE-MESH-AS_SAVED-WAKE5-01",
+    "analysis_mode": "STEADY_SWEEP",
+    "mesh_level": "AS_SAVED_UNVERIFIED",
+    "requested": {
+      "thin_set_index": 4,
+      "thick_set_index": 3,
+      "vspaero": {
+        "WakeNumIter": 5,
+        "RootWakeNodes": 8,
+        "FixedWakeFlag": false,
+        "NRef": 0,
+        "ImplicitWake": false
+      },
+      "control_group_names": {},
+      "control_sign_verified": false
+    }
+  }
+}

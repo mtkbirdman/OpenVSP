@@ -4,13 +4,10 @@ import sys
 import numpy as np
 import pytest
 
-vsp = pytest.importorskip("openvsp")
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.AnalysisVSPAERO import vsp_trimmed_sweep
 
 MODEL_PATH = (
     REPO_ROOT
@@ -24,11 +21,27 @@ DISABLED_ELEVATOR_MODEL_PATH = (
 )
 
 
-def test_trimmed_polar_rejects_disabled_elevator_group():
+@pytest.mark.native_openvsp
+def test_trimmed_polar_rejects_disabled_elevator_group(native_openvsp, isolated_model):
+    vsp = native_openvsp
+    from openvsppy.vspaero.AnalysisVSPAERO import vsp_trimmed_sweep
+    model = isolated_model(DISABLED_ELEVATOR_MODEL_PATH)
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(str(DISABLED_ELEVATOR_MODEL_PATH))
+    vsp.ReadVSPFile(str(model))
     vsp.Update()
+
+    from openvsppy.core.util import find_vspaero_settings_container
+    groups = [vsp.GetVSPAEROControlGroupName(i)
+              for i in range(vsp.GetNumControlSurfaceGroups())]
+    assert groups.count("ELEVATOR_GROUP") == 1
+    index = groups.index("ELEVATOR_GROUP")
+    settings = find_vspaero_settings_container(vsp)
+    flag = vsp.FindParm(settings, "ActiveFlag", f"ControlSurfaceGroup_{index}")
+    assert flag and str(flag).upper() != "NONE"
+    vsp.SetParmVal(flag, 0)
+    vsp.Update()
+    assert not bool(vsp.GetParmVal(flag))
 
     with pytest.raises(
         RuntimeError,
@@ -42,10 +55,16 @@ def test_trimmed_polar_rejects_disabled_elevator_group():
         )
 
 
-def test_trimmed_polar_converges_pitch_moment_and_restores_elevator():
+@pytest.mark.native_vspaero
+@pytest.mark.slow
+def test_trimmed_polar_converges_pitch_moment_and_restores_elevator(native_vspaero_api, isolated_model):
+    vsp = native_vspaero_api
+    from openvsppy.vspaero.AnalysisVSPAERO import vsp_trimmed_sweep
+
+    model = isolated_model(MODEL_PATH)
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(str(MODEL_PATH))
+    vsp.ReadVSPFile(str(model))
     vsp.Update()
 
     group_names = [

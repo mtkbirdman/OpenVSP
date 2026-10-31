@@ -1,0 +1,26 @@
+﻿TestID,Title,Requirement,ExecutionMode,Prerequisites,PlannedCaseCount,QoI,EvaluationRule
+VER-01,Hershey Bar理論照合,REQUIRED,SEMI_AUTO,理論・公開モデルと相互に整合する版を明示,2-3,"CLi,CDiw,span_load",理論参照値への差を記録し、数値収束と承認基準を分離
+VER-02,Ellipsoid理論Cp,REQUIRED,SEMI_AUTO,Thick単体、解析解との座標・迎角・面圧定義を統一,2-3,Cp,Cp分布の基準化、RMS/最大差、収束、対応しない場合は保留
+GEO-01,主翼単体G1,REQUIRED,AUTO,基準Mach・Re・迎角、主翼Thin,1,"CLi,CMiy,CDiw,span_load",モデル有効・結果健全; 単独でValidation PASSにはしない
+GEO-02,主翼＋胴体G2,REQUIRED,AUTO,G1と同条件・同じ基準面積・基準点,1,"CLi,CMiy,CDiw,delta_from_G1",翼胴干渉の変化量を記録; 干渉の許容値は別途承認
+GEO-03,全機G3,REQUIRED,AUTO,G2と同条件、尾翼追加,1,"CLi,CMiy,CDiw,delta_from_G2",形態差分、6分力、幾何の同一性を確認
+GEO-04,Thin/Thick形態比較,CONDITIONAL,SEMI_AUTO,主翼または尾翼をThick化し形状差を監査,2,"CLi,CMiy,CDiw,Cp",手法差として記録、モデル化変化を分割誤差と混同しない
+GRID-01,全機代表点の格子感度,REQUIRED,AUTO,G3、Coarse/Medium/Fine、飛行条件・Wake固定,3,"CLi,CMiy,CDiw,CLiw,CDi",隣接差・収束状況; GCIは成立条件確認時のみ
+GRID-02,第二飛行点の格子感度,REQUIRED,AUTO,干渉の強い第二代表条件で3水準,3,"CLi,CMiy,CDiw,CLiw,CDi",GRID-01と同基準、条件依存性を評価
+GRID-03,局所分割・NRef等,CONDITIONAL,SEMI_AUTO,LECluster/交線/胴体局所分割/NRefの一因子比較,2-5,"CLi,CMiy,CDiw,mesh_quality",分割・形状トポロジー変更を別記
+WAKE-01,後流反復5/10/20,REQUIRED,AUTO,G3 Medium固定、FixedWake=false,3,"CLi,CMiy,CDiw,CLiw,CDi",反復数のみ変更、変化量と残差/後流品質の根拠を保存
+WAKE-02,Wake節点8/12/16,REQUIRED,AUTO,WAKE-01で確定した回数を固定,3,"CLi,CMiy,CDiw,CLiw,CDi",節点数のみ変更、相互差に一律閾値を置かない
+WAKE-03,Wake方式の比較,CONDITIONAL,SEMI_AUTO,ImplicitまたはFixedを有効化した別方式,2+,"CLi,CMiy,CDiw",方式差として報告、収束試験と混同しない
+XCD-01,既存パネル法との照合,REQUIRED,SEMI_AUTO,形状/基準量/軸/条件/後流法の差を登録,>=1,"CLi,CMiy,CDiw,span_load",差を報告する。比較のみで実験Validationと判定しない
+XCD-02,NS解析との照合,REQUIRED,SEMI_AUTO,NS格子/乱流モデル/遷移/収束・補正を登録,>=1,"CLi,CMiy,CDiw,Cp",物理モデル差を診断、NSを真値とはみなさない
+VAL-01,風洞縦空力,REQUIRED,SEMI_AUTO,風洞の迎角3～5点+基準条件、必要な補正を確認,>=3,"CL,Cm,CD",誤差・実験不確かさを評価し承認された設計許容差に照らす
+VAL-02,風洞横方向,REQUIRED,SEMI_AUTO,正負β条件、座標・符号統一,>=3,"CY,Cl,Cn",欠測時は証拠不足、静的試験を動的微係数のValidationに転用しない
+STA-01,Steady/Adjoint比較,REQUIRED,AUTO,同一基準状態で2解析モード,2,"Cm_q,Cl_p,Cn_r,Cl_r,Cn_p",微係数の定義・符号・物理成分が一致した場合のみ比較
+STA-02,微係数の分割/Wake感度,REQUIRED,SEMI_AUTO,基準とFine、後流2水準、必要時摂動幅,4+,"Cm_q,Cl_p,Cn_r",絶対差、符号、飛行力学影響、閾値未決なら保留
+STA-03,P/Q/R非定常,CONDITIONAL,SEMI_AUTO,動的参照データがあればP/Q/Rを実行,3+,combined_dynamic_derivatives,周波数・振幅・時間刻みの定義を保存、定常微係数と混同しない
+CTRL-01,エレベータ舵効き,REQUIRED,AUTO,"-10,-5,-2,0,2,5,10degの可動範囲内",7,"Cm,CL,delta_Cm,Cm_delta_e",舵角差分の分母はrad、物理偏向・符号を確認
+CTRL-02,エルロン舵効き,REQUIRED,AUTO,左右Gainの偏向方向を検査し同様に7点,7,"Cl,Cn,CY,Cl_delta_a,Cn_delta_a",逆ヨーと符号確認、有限角特性を保存
+CTRL-03,ラダー舵効き,REQUIRED,AUTO,左右Gain・角度正方向を検査し7点,7,"Cn,CY,Cl,Cn_delta_r",有限角・局所微係数の両方を比較
+DRAG-01,外部CD0方法A,REQUIRED,AUTO,CDiwの数値収束、同条件CD0積み上げが前提,>=1,"CDiw,CD0_build,CD_A",CDtot/CDwtot二重計上禁止、派生値として保存
+DRAG-02,外部CD0方法B,REQUIRED,SEMI_AUTO,CDo基準条件の定義とCD0含有成分が前提,>=1,"CDo,CDo_baseline,CD_B",方法Aと風洞を比較、基準不明なら評価保留
+ACC-01,使用認定,REQUIRED,MANUAL,NUMとENGの評価、承認済み許容差、制限事項が必要,0,qoi_by_domain,両方PASSが原則、条件付き使用は明示的レビューと制限が必須

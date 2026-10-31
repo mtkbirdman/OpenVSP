@@ -202,3 +202,30 @@ vv_0*
 wake_*0*
 coding.md
 desktop.ini
+
+# V&V run/measurement data (do not commit proprietary inputs or results)
+vv_study/01_database/*.sqlite
+vv_study/01_database/*.sqlite-*
+vv_study/03_run_raw/
+vv_study/04_reports/
+vv_study/02_reference/panel/*
+vv_study/02_reference/ns/*
+vv_study/02_reference/wind_tunnel/*
+vv_study/02_reference/external_cd0/*
+vv_study/study.private.json
+vv_study/case.json
+
+# Reproducible V&V definitions stay tracked; runs and intermediate outputs do not.
+/vv_study/generated/
+/vv_study/geometry_generated/
+/vv_study/01_database/*.db
+/vv_study/01_database/*.db-*
+/examples/notebooks/**/output/
+/examples/notebooks/**/results/
+/examples/notebooks/**/generated/
+/examples/notebooks/**/cases/
+/examples/notebooks/**/CASE_*/
+/examples/notebooks/**/run_*/
+
+# Isolated, manually selected native pytest reports
+/native_test_results/

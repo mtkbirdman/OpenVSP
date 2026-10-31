@@ -1,0 +1,116 @@
+{
+  "schema_version": "1.0",
+  "study_id": "VSP3505-VV-001",
+  "name": "VSPAERO 3.50.5 whole-aircraft V&V",
+  "plan": {
+    "file": "../docs/vv/VSPAERO_3.50.5_VV_Plan_v1.1.md",
+    "version": "1.1",
+    "sha256": "31a30e103fbdbc9268b9a390cf2b4d8b29df6f611f25fb938a8b08fd150b7130"
+  },
+  "runtime": {
+    "openvsp_version_required": "3.50.5",
+    "vsp3_source": "01_geometry/baseline.vsp3",
+    "openvsp_binary": null,
+    "vspaero_binary": null,
+    "processes": 1,
+    "run_one_point_per_process": true
+  },
+  "geometry": {
+    "geometry_id": null,
+    "members": {
+      "wing": "Thin",
+      "horizontal_tail": "Thin",
+      "vertical_tail": "Thin",
+      "fuselage": "Thick"
+    },
+    "thin_set_name": "VV_THIN",
+    "thick_set_name": "VV_THICK",
+    "allow_set_overlap": false
+  },
+  "reference": {
+    "sref": null,
+    "bref": null,
+    "cref": null,
+    "reference_length_unit": "m",
+    "moment_xyz": null,
+    "axes_convention_id": null,
+    "angle_input_unit": "deg",
+    "derivative_angle_unit": "rad"
+  },
+  "flight_condition": {
+    "mach": null,
+    "re_cref": null,
+    "alpha_deg": null,
+    "beta_deg": 0.0,
+    "controls_deg": {
+      "elevator": 0.0,
+      "aileron": 0.0,
+      "rudder": 0.0
+    },
+    "trim_mode": "FIXED_CONTROL"
+  },
+  "numerics": {
+    "analysis_mode": "STEADY_SWEEP",
+    "mesh_level": "MEDIUM",
+    "surface_tessellation": {
+      "wing": {
+        "Tess_W": 31,
+        "SectTess_U": 12,
+        "LECluster": 0.25,
+        "TECluster": 0.25
+      },
+      "horizontal_tail": {
+        "Tess_W": 31,
+        "SectTess_U": 10
+      },
+      "vertical_tail": {
+        "Tess_W": 31,
+        "SectTess_U": 10
+      },
+      "fuselage": {
+        "Tess_W": 25,
+        "SectTess_U": 10
+      }
+    },
+    "vspaero": {
+      "NRef": 0,
+      "Symmetry": false,
+      "StallModel": "STALL_OFF",
+      "FixedWakeFlag": false,
+      "WakeNumIter": 5,
+      "RootWakeNodes": 8,
+      "ImplicitWake": false,
+      "WakeRelax": 1.0,
+      "FarDistToggle": false,
+      "FarDist": -1,
+      "RefFlag": "MANUAL_REF"
+    }
+  },
+  "policies": {
+    "no_implicit_default": true,
+    "fail_on_extra_case_points": true,
+    "unknown_qoi": "PRESERVE_RAW_AND_FLAG",
+    "source_wind_tunnel_split": "VALIDATION",
+    "assessment_without_approved_rule": "INSUFFICIENT_EVIDENCE",
+    "reference_angle_tolerance_deg": 1e-06,
+    "do_not_automatically_interpolate": true,
+    "output_formats": [
+      "xlsx",
+      "csv"
+    ],
+    "relative_delta_denominator_floor": null
+  },
+  "screening_only": {
+    "CLi_medium_fine_abs_max": 0.005,
+    "Cm_medium_fine_abs_max": 0.002,
+    "CDiw_medium_fine_abs_max": 0.0005
+  },
+  "drag": {
+    "method_a": "CDiw + CD0_build",
+    "method_b": "CDiw + (CDo - CDo_baseline) + CD0_build",
+    "cd0_source_dataset_id": null,
+    "method_b_baseline_condition_id": null,
+    "baseline_definition": null
+  },
+  "test_catalog_csv": "01_database/test_catalog.csv"
+}
