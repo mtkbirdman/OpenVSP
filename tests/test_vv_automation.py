@@ -75,9 +75,27 @@ def test_frozen_successful_runs_generate_real_review_figures_and_tables(tmp_path
     assert result['figure_count']>=1
     assert result['run_selection']==saved
     document=Path(result['report']).read_text(encoding='utf-8')
-    assert '![GRID-01 図' in document
+    assert '![FIG-GRID-01-' in document
+    from openvsppy.vv.VVDatabase import VVDatabase
+    products = Path(result['output_dir'])
+    evidence = json.loads((products/'evidence_manifest.json').read_text(encoding='utf8'))
+    assert evidence['database_source'] == 'database_snapshot.sqlite'
+    for entry in evidence['files']:
+        assert digest(products/entry['path']) == entry['sha256']
+    frozen = VVDatabase(products/'database_snapshot.sqlite')
+    try:
+        assert frozen.conn.execute("SELECT COUNT(*) FROM artifact WHERE role='REVIEW_REPORT'").fetchone()[0] == 0
+        # Every Artifact in the frozen DB is exported with the same ID set.
+        with (products/'tables/artifact.csv').open(encoding='utf-8-sig',newline='') as f:
+            rows = list(__import__('csv').DictReader(f))
+        assert {r['artifact_id'] for r in rows} == {
+            r['artifact_id'] for r in frozen.conn.execute('SELECT artifact_id FROM artifact')}
+    finally:
+        frozen.close()
+    assert result['embedded_figure_count'] <= result['figure_count']
+    assert len(list((products/'test_reports').glob('*.md'))) == 25
     assert 'CMiy' in document and 'GRID-01-MEDIUM' in document
-    assert all(Path(p['path']).is_file() for p in json.loads(
+    assert all((Path(result['output_dir'])/p['path']).is_file() for p in json.loads(
         (Path(result['output_dir'])/'results_snapshot.json').read_text())['charts'])
     db=VVDatabase(root/'01_database'/'vv.sqlite')
     assert db.conn.execute('SELECT COUNT(*) FROM run').fetchone()[0]==2
@@ -132,7 +150,8 @@ def test_reference_comparison_and_drag_figures_enter_formal_report(tmp_path, stu
     assert len([p for p in snapshot['charts'] if p['kind']=='DRAG_POLAR'])==2
     assert any(p['kind']=='REFERENCE_COMPARISON' for p in snapshot['charts'])
     text=Path(result['report']).read_text(encoding='utf8')
-    assert 'ParasiteDrag由来の補正結果' in text and 'VER-01 図' in text
+    assert '![FIG-VER-01-' in text
+    assert 'ParasiteDrag補正' in (Path(result['output_dir'])/'test_reports/DRAG-01.md').read_text(encoding='utf8')
     # Repeated review/export must not duplicate immutable source datasets,
     # comparisons or drag correction quantities.
     repeated=execute_study(root/'study.json',root/'manifest.json',execute=False)

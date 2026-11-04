@@ -4,10 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openvsppy"
-version = "2026.10.31.11"
+version = "2026.11.4.0"
 description = "OpenVSP Python tools and VSPAERO 3.50.5 V&V automation"
 requires-python = ">=3.10"
 # OpenVSP native Python API comes from the separate OpenVSP installation.
+
+[project.optional-dependencies]
+report-test = ["pytest>=7", "markdown-it-py>=3", "matplotlib>=3.7"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -2,6 +2,16 @@
 
 本書は旧`docs/vv/`内のRelease Notes、実装・仕様Matrix、Windows実行ガイド、過去のテスト結果など**29件を破壊的に統合した開発記録**です。過去の操作コマンドは当時の構成を示す記録であり、現行CLIではありません。現行操作は`cli_guide.md`、現行実装状況は`implementation_status.md`を参照してください。
 
+## v20261104.0 — Markdown評価報告書の正確性・可読性・可搬性改善（2026-11-04）
+
+- 報告書に明示マーカーを導入し、5.1節の静的「全件未実施」表を固定SQLite／採用Runの状態表へ置換。Run成功、数値判定、使用認定は分離したままとする。
+- 正式13章の`evaluation_report.md`を索引・代表図中心に整理し、`test_reports/<Test ID>.md`に全Quantity、Dataset/Method、メッシュ/履歴、参照比較を保持。元CSVは従来どおり全Quantityを出力。
+- 図の横軸をCTRL指令角・実測メッシュ数・Wake条件等の物理量とし、GEO等のカテゴリは連続線を使用しない。同名QoIのMethod／Dataset違いを上書きせず分離。主たるQoIを試験群ごとに限定し、L/Dと微小係数を同一棒図へ混合しない。
+- 図の相対パス・Figure IDと出典の`figure_manifest.csv`を追加。`results_snapshot.json`を`REPORT_SNAPSHOT_V2_RELATIVE_PATHS`に拡張。
+- ライブDBからの生成データを登録した後にDBを固定し、**本文と表CSVは固定DB**から生成。DB自身と報告書自身のハッシュは自己参照を避け`evidence_manifest.json`で管理。
+- Markdown GFMテーブル構文、物理横軸、複数Dataset、全25 Test、固定DB、移動後の画像パスなどのオフライン回帰テストを追加。
+- **既存Run、SQLiteスキーマ、V&V計画書の数値要求は変更していない。** 旧版の出力とは表示形式・図の点数が異なるため、既存報告書や解析原本を上書きしない。Windows/OpenVSP 3.50.5での新規ソルバー解析は本版では未確認。
+
 ## 文書体系の整理（2026-10-31）
 
 - `docs/vv/`の運用ファイル名を固定し、計画書・DB仕様・評価報告書雛形もファイル名から版数を除去。文書内の正式な版数と既存の技術的な試験条件は維持。

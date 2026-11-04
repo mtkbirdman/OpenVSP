@@ -702,23 +702,67 @@ def execute_study(study_file, manifest_file, *, db_path=None, binary_path=None,
         log({'phase':'REPORT','event':'STARTED','message':'Generating figures, tables and review report'})
         # 7. Generate figures and the populated, but not technically approved, report.
         charts=create_study_plots(snapshot,destination/'figures')
+        snapshot['schema_version']='REPORT_SNAPSHOT_V2_RELATIVE_PATHS'
         snapshot['charts']=charts
         snapshot_path.write_text(json.dumps(snapshot,ensure_ascii=False,indent=2),encoding='utf-8')
-        for file in (snapshot_path,destination/'quantities.csv',destination/'history.csv'):
+        # A stable, portable manifest makes original Quantity/Method lineage
+        # accessible without adding large JSON blobs to image captions.
+        import csv
+        import sqlite3
+        from .VVDatabase import source_fingerprint, VISUALIZATION_SOURCES, VVDatabase
+        figure_manifest=destination/'figure_manifest.csv'
+        with figure_manifest.open('w',newline='',encoding='utf-8-sig') as stream:
+            writer=csv.writer(stream)
+            writer.writerow(['figure_id','test_id','plot_kind','qoi','x_label','x_unit',
+                'y_label','y_unit','source_quantity_ids','source_dataset_ids','path',
+                'sha256','display_priority','generation_source_sha256','note'])
+            for chart in charts:
+                image=destination/chart['path']
+                if not image.is_file():raise FileNotFoundError(image)
+                sources=chart['sources']
+                writer.writerow([chart['figure_id'],chart['test_id'],chart['kind'],
+                    chart['qoi'],chart.get('x_label',''),chart.get('x_unit',''),
+                    chart.get('y_label',''),chart.get('y_unit',''),
+                    json.dumps(sorted({x['quantity_id'] for x in sources if x.get('quantity_id')})),
+                    json.dumps(sorted({x['dataset_id'] for x in sources if x.get('dataset_id')})),
+                    chart['path'],digest(image),chart.get('display_priority','DIAGNOSTIC'),
+                    snapshot['visualization_source_sha256'],chart.get('note','')])
+        # The existing SQLite and all source Run artifacts remain untouched.
+        # Only newly created review products are registered in the live DB.
+        for file in (snapshot_path,destination/'quantities.csv',
+                     destination/'history.csv',figure_manifest):
             db.register_artifact(root,study['study_id'],file,role='REVIEW_DATA')
         for chart in charts:
-            db.register_artifact(root,study['study_id'],chart['path'],role='REVIEW_FIGURE')
-        # Copy SQLite with the official backup API, not a raw file copy of
-        # a potentially WAL-enabled live database. This snapshot is immutable.
-        import sqlite3
+            db.register_artifact(root,study['study_id'],destination/chart['path'],
+                                 role='REVIEW_FIGURE')
+        # Export before freezing: artifact.csv and every other table must agree
+        # with the identical captured SQLite state. Do not include tables in
+        # their own artifact register (an unavoidable self-reference).
+        export_csv(db,destination/'tables')
         db_snapshot=destination/'database_snapshot.sqlite'
         with sqlite3.connect(db_snapshot) as backup:
             db.conn.backup(backup)
-        db.register_artifact(root,study['study_id'],db_snapshot,role='REVIEW_DB_SNAPSHOT')
-        report=write_evaluation_report(db,destination/'evaluation_report.md',
-                                       selected_runs=config.get('run_selection'),
-                                       results=snapshot,database_snapshot=db_snapshot)
-        export_csv(db,destination/'tables')
+        frozen=VVDatabase(db_snapshot)
+        frozen.conn.execute('PRAGMA query_only=ON')
+        try:
+            report=write_evaluation_report(frozen,destination/'evaluation_report.md',
+                selected_runs=config.get('run_selection'),results=snapshot,
+                database_snapshot=db_snapshot)
+        finally:
+            frozen.close()
+        # The snapshot and report cannot be their own SQLite Artifacts. An
+        # external one-way manifest records their hashes, avoiding a cycle.
+        evidence=[]
+        for path in sorted(destination.rglob('*')):
+            if path.is_file() and path.name not in ('evidence_manifest.json','progress.jsonl'):
+                evidence.append({'path':path.relative_to(destination).as_posix(),
+                                 'sha256':digest(path),'size_bytes':path.stat().st_size})
+        (destination/'evidence_manifest.json').write_text(json.dumps({
+            'schema_version':'REVIEW_EVIDENCE_MANIFEST_V1',
+            'database_source':'database_snapshot.sqlite',
+            'visualization_source_sha256':snapshot['visualization_source_sha256'],
+            'files':evidence},ensure_ascii=False,indent=2),encoding='utf-8')
+        # Register the final report only in the mutable DB, after backup.
         report_id=db.register_artifact(root,study['study_id'],report,role='REVIEW_REPORT')
         log({'phase':'REPORT','event':'FINISHED','message':'REVIEW_REPORT_GENERATED'})
         log({'phase':'SUMMARY','event':'FINISHED',
@@ -729,7 +773,11 @@ def execute_study(study_file, manifest_file, *, db_path=None, binary_path=None,
                     1 for x in executions if x['status'] in ('SUCCEEDED','REUSED','REPROCESSED','REUSED_POSTPROCESS')),
                 'blocked_or_failed':sum(1 for x in executions if x['status'] not in
                     ('SUCCEEDED','REUSED','REPROCESSED','REUSED_POSTPROCESS')),
-                'figure_count':len(charts),'run_selection':{
+                'figure_count':len(charts),
+                'embedded_figure_count':sum(min(3,sum(
+                    c['test_id']==test and c.get('display_priority')=='PRIMARY'
+                    for c in charts)) for test in CASE_ROLES),
+                'run_selection':{
                     row['case_id']:row['run_id'] for row in snapshot['cases'] if row['run_id']}}
     finally:
         db.close()

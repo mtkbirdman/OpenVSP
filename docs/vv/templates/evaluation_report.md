@@ -1,6 +1,6 @@
 # VSPAERO 3.50.5 Verification & Validation（V&V）評価報告書
 
-> **正式な報告様式／未評価テンプレート v0.1**
+> <!-- VV:META:NOTICE -->
 >
 > このファイルは実試験結果を記入して審査・発行するための報告書テンプレートである。**評価結果や使用認定を示す発行済み報告書ではない。** 未入力欄は証拠がそろうまで未入力・`NOT_EVALUATED`・`INSUFFICIENT_EVIDENCE`のままとし、架空の数値で埋めない。
 
@@ -11,14 +11,14 @@
 | テンプレート版 | `0.1` |
 | 報告書の発行版 | **未発行** |
 | テンプレート作成日 | 2026-10-23 |
-| 報告対象Study ID | 《未設定：Study ID》 |
+| 報告対象Study ID | <!-- VV:META:STUDY --> |
 | 対象機体・形態 | 《未設定：機体型式、幾何版、G1/G2/G3の定義》 |
 | 対象ソフトウェア | **OpenVSP／VSPAERO 3.50.5**（実行バイナリの同定は未確認） |
 | 上位V&V計画 | `plan.md` |
 | DB詳細仕様 | `database_spec.md`／同梱`schema.sql` |
 | 対応試験 | 上位計画の全25 Test ID（変更不可） |
-| 対象DBスナップショット | 《未作成：パス、SHA-256、抽出日時UTC》 |
-| プログラムGit Commit／版 | 《未設定：commit／パーサ版／後処理版》 |
+| 対象DBスナップショット | <!-- VV:META:DB --> |
+| プログラムGit Commit／版 | 《未記録：Git Commit》／<!-- VV:META:POST --> |
 | 情報区分 | 《未設定：機密区分・配布範囲》 |
 | 作成者・検証者・承認者 | 《未設定》 |
 | 現在の技術的状態 | **空力V&Vは未完了。使用認定は行っていない。** |
@@ -38,6 +38,8 @@
 
 ## 1. 総括（Executive Summary）
 
+<!-- VV:CHAPTER:1 -->
+
 ### 1.1 審査対象と設計用途
 
 | 項目 | 要約 |
@@ -47,7 +49,7 @@
 | 飛行条件の評価範囲 | 《未設定：Mach、Re、α、β、舵角、トリム・質量特性》 |
 | 評価対象QoI | 《未設定：評価量・定義・用途別重要度》 |
 | 評価に使用した主たる根拠 | 《未設定：理論、風洞、他ソルバー、分割・後流試験》 |
-| 結果の要約 | **NOT_EVALUATED：試験・比較結果は未記入** |
+| 結果の要約 | **NOT_EVALUATED：数値・工学評価未承認。実行状況は自動集計を参照** |
 | 使用の総合判断 | **INSUFFICIENT_EVIDENCE：現在は認定証拠がない** |
 | 主たる制限事項 | 《未設定。資料不足や適用限界があれば列記》 |
 
@@ -176,8 +178,8 @@ $$
 | Python・OS・CPU・スレッド数 | 《未設定》 | 《未設定》 |
 | 解析ユーティリティGit Commit | 《未設定》 | 《未設定》 |
 | VVDBソフトウェア版 | 《未設定：現在の試験済範囲を併記》 | 《未設定》 |
-| 計画書・設定ファイルのSHA-256 | 《未設定》 | 《未設定》 |
-| データベースSnapshotのSHA-256 | 《未設定》 | 《未設定》 |
+| 計画書・設定ファイルのSHA-256 | <!-- VV:META:PLAN_HASHES --> | DB study record |
+| データベースSnapshotのSHA-256 | <!-- VV:META:DB_SHA --> | Manifest |
 
 ### 4.2 Geometryと最終メッシュ
 
@@ -215,48 +217,7 @@ $$
 
 ### 5.1 全25 Test IDの実施・評価状況
 
-> この表のTest ID・名称・必須／条件付きの区分は、`test_catalog.csv`を正本として転記する。`run.status`／各テストの判定／最終使用認定を混同しない。
-
-| Test ID | 試験名 | 要求区分 | 実施状況 | 評価状態 | 主なRun／参照Dataset | 備考・逸脱 |
-|---|---|---|---|---|---|---|
-| `VER-01` | Hershey Bar理論照合 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `VER-02` | Ellipsoid理論Cp | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `GEO-01` | 主翼単体G1 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `GEO-02` | 主翼＋胴体G2 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `GEO-03` | 全機G3 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `GEO-04` | Thin/Thick形態比較 | CONDITIONAL | 未実施 | NOT_EVALUATED | — | — |
-| `GRID-01` | 全機代表点の格子感度 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `GRID-02` | 第二飛行点の格子感度 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `GRID-03` | 局所分割・NRef等 | CONDITIONAL | 未実施 | NOT_EVALUATED | — | — |
-| `WAKE-01` | 後流反復5/10/20 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `WAKE-02` | Wake節点8/12/16 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `WAKE-03` | Wake方式の比較 | CONDITIONAL | 未実施 | NOT_EVALUATED | — | — |
-| `XCD-01` | 既存パネル法との照合 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `XCD-02` | NS解析との照合 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `VAL-01` | 風洞縦空力 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `VAL-02` | 風洞横方向 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `STA-01` | Steady/Adjoint比較 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `STA-02` | 微係数の分割/Wake感度 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `STA-03` | P/Q/R非定常 | CONDITIONAL | 未実施 | NOT_EVALUATED | — | — |
-| `CTRL-01` | エレベータ舵効き | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `CTRL-02` | エルロン舵効き | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `CTRL-03` | ラダー舵効き | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `DRAG-01` | 外部CD0方法A | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `DRAG-02` | 外部CD0方法B | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-| `ACC-01` | 使用認定 | REQUIRED | 未実施 | NOT_EVALUATED | — | — |
-
-#### ステータス集計（入力時に算定）
-
-| 集計対象 | 値 |
-|---|---|
-| Test ID総数 | 25（固定） |
-| `REQUIRED` | 《入力：Catalogから集計》 |
-| `CONDITIONAL` | 《入力：Catalogから集計》 |
-| 実施済み | 《未集計》 |
-| 未実施／実施失敗／対象外 | 《未集計》 |
-| PASS／FAIL／INCONCLUSIVE／NOT_EVALUATED | 《未集計》 |
-
-未実施の条件付き試験は`NOT_APPLICABLE`または未実施理由を別列へ記録する。`NOT_APPLICABLE`を判定`PASS`に換算しない。
+<!-- VV:CHAPTER:5.1 -->
 
 ### 5.2 試験計画からの逸脱
 
@@ -269,6 +230,8 @@ $$
 《記入：3.50.5での実行確認、状態遷移・原本ハッシュ照合、missing／changed artifact、解析エラーの除外基準。ソフトウェア単体テスト（SW）は空力V&Vとは別節で明示。》
 
 ## 6. 基本Verification（VER）
+
+<!-- VV:CHAPTER:6 -->
 
 ### 6.1 VER-01：Hershey Bar
 
@@ -292,6 +255,8 @@ $$
 公式ベンチマークが成功しても、機体G3全体のValidation完了とは解釈しない。
 
 ## 7. 幾何モデル・メッシュ・後流のSolution Verification（GEO／GRID／WAKE）
+
+<!-- VV:CHAPTER:7 -->
 
 ### 7.1 GEO-01～GEO-04：構成要素と解析表現
 
@@ -341,6 +306,8 @@ GRID-03は条件付きの局所分割・`NRef`等の一因子感度であり、�
 
 ## 8. 既存パネル法・NS解析との比較（XCD）
 
+<!-- VV:CHAPTER:8 -->
+
 ### 8.1 XCD-01：既存パネル法
 
 《記入：モデル化（翼面、胴体、尾翼）、後流評価、座標・基準点・抗力定義、計算条件・分割・収束状態を一致表で示す。》
@@ -358,6 +325,8 @@ GRID-03は条件付きの局所分割・`NRef`等の一因子感度であり、�
 直接比較ができない場合は`DIRECT / CONVERTED / INTERPOLATED / ILLUSTRATIVE`を区別し、使用した変換式と不確かさを記録する。
 
 ## 9. 風洞Validation（VAL）
+
+<!-- VV:CHAPTER:9 -->
 
 ### 9.1 試験装置・計測方法・風洞模型
 
@@ -398,6 +367,8 @@ GRID-03は条件付きの局所分割・`NRef`等の一因子感度であり、�
 | 《未設定》 | 《未設定》 | 《未算定》 | 《未算定》 | 《未承認》 | INCONCLUSIVE | 《未設定》 |
 
 ## 10. 安定微係数・舵効き（STA／CTRL）
+
+<!-- VV:CHAPTER:10 -->
 
 ### 10.1 安定微係数の定義
 
@@ -450,6 +421,8 @@ $$
 
 ## 11. 外部CD0による抗力ポーラー（DRAG）
 
+<!-- VV:CHAPTER:11 -->
+
 ### 11.1 使用する抗力成分の宣言
 
 | Quantity / Dataset ID | 成分 | 内包される物理 | Mach・Re・形状の対応 | 原本 |
@@ -484,6 +457,8 @@ $$
 
 ## 12. 最終的な使用適格性評価（ACC-01）
 
+<!-- VV:CHAPTER:12 -->
+
 ### 12.1 用途・QoI・領域ごとの判断
 
 > **本章が設計上の最終成果である。** 判断はVSPAERO 3.50.5全体への一括認証ではなく、明示された用途・形態・QoI・飛行条件に限る。
@@ -511,6 +486,8 @@ $$
 《記入：Validation点の間で使う領域、検証点から離れた領域、物理現象が変わる領域を識別し、外挿の判断根拠・追加試験の優先度を記す。》
 
 ## 13. 結論・残課題・文書承認
+
+<!-- VV:CHAPTER:13 -->
 
 ### 13.1 結論
 

@@ -51,6 +51,8 @@ python -m openvsppy.vv --db $db export --output vv_study\04_reports\manual_expor
 python -m openvsppy.vv --db $db report --output vv_study\04_reports\manual_review.md
 ```
 
+v20261104.0から`results_snapshot.json`の`charts[].path`は報告フォルダーからのPOSIX相対パスです（旧版は絶対パス）。本文の主要図以外の出典は`test_reports/`と`figure_manifest.csv`を参照してください。固定DB自身はそのSQLite内のArtifactには登録されず、外部ManifestでSHA-256を検証します。
+
 `execute-all`が正常終了しても、Caseごとに`BLOCKED`・欠測・解析失敗があり得ます。**`REVIEW_REPORT_GENERATED`は全解析成功やV&V合格を意味しません**。レビュー済みマニフェストに指定されていない参照値・飛行条件は自動補完しません。
 
 ## 4. 個別調査・再処理
@@ -104,7 +106,7 @@ Caseごとに指定したい場合は、**Case登録前**のCase JSONで次の�
 
 - `vv_study/01_database/*.sqlite`：新しいStudy DB。
 - `vv_study/03_run_raw/RUN-.../{input,logs,raw}`：入力・ワーカーログ・ネイティブ結果・API診断JSON。
-- `vv_study/04_reports/execute_.../`：`progress.jsonl`、固定DBスナップショット、CSV、図表、13章の`evaluation_report.md`。
+- `vv_study/04_reports/execute_.../`：`progress.jsonl`、固定DBスナップショット、CSV、図表、13章の`evaluation_report.md`、25件の`test_reports/`、`figure_manifest.csv`、`evidence_manifest.json`。
 - `raw/vspaero_api_stdout.log`：C++側監視出力。`raw/api_diagnostics.json`：入力ハッシュ、APIモード、Run実行環境など。
 - `inspect-run`と`verify-artifacts`はファイル・レコード整合性を検査するもので、ソルバー数値解や工学的妥当性を自動保証しません。
 

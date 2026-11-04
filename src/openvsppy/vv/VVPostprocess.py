@@ -633,8 +633,12 @@ def collect_study_results(db, study_root, selected_runs=None):
             result['flight_condition']={name:condition[name] for name in
                 ('mach','re_cref','alpha_deg','beta_deg','sref','bref','cref')}
             result['flight_condition']['controls_deg']=json.loads(condition['controls_deg_json'])
-            points=db.conn.execute('''SELECT point_id FROM case_point
-                WHERE run_id=? AND point_status='MATCHED' ''',(chosen['run_id'],)).fetchall()
+            # Only points explicitly linked to THIS Case are admissible.
+            # A multi-point solver Run can serve multiple planned Cases.
+            points=db.conn.execute('''SELECT pt.point_id FROM case_point pt
+                JOIN case_run_link link ON link.point_id=pt.point_id
+                WHERE pt.run_id=? AND link.case_id=? AND pt.point_status=?''',
+                (chosen['run_id'],cid,'MATCHED')).fetchall()
             for point in points:
                 for ds in db.conn.execute('''SELECT * FROM dataset WHERE point_id=?
                     ORDER BY rowid''',(point['point_id'],)):
@@ -670,13 +674,21 @@ def collect_study_results(db, study_root, selected_runs=None):
                 if item['role'] in CASE_ROLES[item['test_id']]
                 else len(CASE_ROLES[item['test_id']]))
     rows.sort(key=case_order)
+    # A report may only display comparisons whose predicted Quantity belongs
+    # to the explicitly selected successful Run, not historical alternatives.
+    selected_quantities={q['quantity_id'] for case in rows for q in case['quantities']}
+    selected_datasets={d['dataset_id'] for case in rows for d in case['datasets']}
     comparisons=[]
+    excluded_comparison_ids=[]
     for c in db.conn.execute('''SELECT c.*, p.native_value predicted_value,
             r.native_value reference_value,p.native_unit predicted_unit,r.native_unit reference_unit,
             p.qoi qoi,p.dataset_id predicted_dataset,r.dataset_id reference_dataset
             FROM comparison c JOIN quantity p ON p.quantity_id=c.predicted_quantity_id
             JOIN quantity r ON r.quantity_id=c.reference_quantity_id
             ORDER BY c.test_id,c.comparison_id'''):
+        if c['predicted_quantity_id'] not in selected_quantities:
+            excluded_comparison_ids.append(c['comparison_id'])
+            continue
         comparisons.append({'test_id':c['test_id'],'comparison_id':c['comparison_id'],
             'qoi':c['qoi'],'predicted':c['predicted_value'],'reference':c['reference_value'],
             'delta':c['delta_value'],'unit':c['predicted_unit'],
@@ -688,7 +700,7 @@ def collect_study_results(db, study_root, selected_runs=None):
     for ds in db.conn.execute("SELECT * FROM dataset WHERE kind='DERIVED' AND method_id='CD0_CORRECTION' ORDER BY rowid"):
         meta=json.loads(ds['metadata_json'])
         polar_id=meta.get('polar_dataset')
-        if not polar_id:continue
+        if not polar_id or polar_id not in selected_datasets:continue
         source=db.row('dataset','dataset_id',polar_id)
         if not source:continue
         lift=db.conn.execute("""SELECT qoi,canonical_value FROM quantity
@@ -713,7 +725,8 @@ def collect_study_results(db, study_root, selected_runs=None):
                 'condition_id':source['condition_id']})
     return {'source':'SQLite Run/Point/Dataset/Quantity snapshot',
             'selection_policy':'EXPLICIT_WHERE_PROVIDED_ELSE_LATEST_SUCCESSFUL_FROZEN_IN_SNAPSHOT',
-            'cases':rows,'comparisons':comparisons,'drag_polars':drag_polars}
+            'cases':rows,'comparisons':comparisons,'drag_polars':drag_polars,
+            'excluded_historical_comparison_ids':excluded_comparison_ids}
 
 
 def evaluate_test(db, study_id, test_id, *, selection=None, label=None):
