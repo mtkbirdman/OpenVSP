@@ -1,0 +1,13 @@
+{
+  "schema_version": "REPORT_PROFILE_V1",
+  "study_id": "VSP3505-VV-001",
+  "baseline_case_id": "GEO-03-G3",
+  "intended_uses": [],
+  "document_control": {
+    "classification": null,
+    "author": null,
+    "reviewer": null,
+    "approver": null,
+    "approval_status": "DRAFT"
+  }
+}

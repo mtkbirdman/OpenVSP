@@ -34,7 +34,8 @@ def test_vv_document_set_is_canonical():
         "README.md", "evaluation_report.md", "test_record.md"
     }
     assert {p.name for p in (DOCS / "templates").glob("*.json")} == {
-        "case.json", "execution.json", "study.json", "reference.json"
+        "case.json", "execution.json", "study.json", "reference.json",
+        "report_profile.json"
     }
     assert {p.name for p in (ROOT / "examples/vv").iterdir()} == {
         "g103a_baseline.json", "reference.csv"

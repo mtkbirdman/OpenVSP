@@ -188,3 +188,20 @@ Native試験は`isolated_model`・`native_workspace` fixtureを用いてモデ�
 上記は設定キーの追加例であり、**既存の`execution.reviewed.json`の他の項目を消さない**でください。配布物の既定値は`ADJOINT=10800`、Case別設定は空です。Wake反復数・NCPU・GMRES閾値等の数値解析条件は変更しません。長時間のAdjoint実行が必ず収束する保証はありません。
 
 **実機での受入：** v20261031.10のWindowsログではGEO-03-G3がNCPU=8で成功、NCPU=4の一括実行では複数Caseが成功する一方、GEO-01/GEO-02のControl Group不整合、`GRID-03-NREF_1`のメッシュ関連異常、Adjoint3600秒タイムアウト等が観測されました。v20261031.11の修正による成功は、Windows実機で再実行した後に初めて確認できます。
+
+### 過去のStudyの読み取り専用・第1～4章自動入力（v20261104.1）
+
+現行計画書と旧Studyの計画書ハッシュが異なる場合、`execute-all --no-run` は使わない。
+元SQLiteを読み取り専用で開いて固定コピーを作り、報告書を再生成する：
+
+```powershell
+$repo = 'C:\Users\mtkbirdman\OneDrive\Documents\OpenVSP'
+$study = 'C:\Work\OpenVSP-VV_20261031_10\OpenVSP-main\vv_study'
+python "$repo\tools\regenerate_vv_report.py" --repo $repo --study-root $study `
+  --db "$study\01_database\vv_20261031_10.sqlite"
+```
+
+`--report-profile`には任意で `docs/vv/templates/report_profile.json` から複製・確認したJSONを指定可能。
+`baseline_case_id` は**表示用の代表Case**の指定であり、数値検証・使用認定の承認ではない。
+出力には `report_field_provenance.json` と `tables/report_*_audit.csv` が含まれる。
+元SQLite・原本Run・既存レポートを変更せず、出力先は新しいフォルダのみ。

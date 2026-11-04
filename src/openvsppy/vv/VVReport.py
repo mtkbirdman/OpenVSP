@@ -239,7 +239,7 @@ def _render_test_report(test, charts, snapshot, destination):
 
 
 def write_evaluation_report(db, destination, *, study_path=None, selected_runs=None,
-                            results=None, database_snapshot=None):
+                            results=None, database_snapshot=None, report_profile=None):
     """Populate explicit markers in the official 13-chapter template.
 
     The caller must supply a *frozen database* when database_snapshot is set.
@@ -294,6 +294,13 @@ def write_evaluation_report(db, destination, *, study_path=None, selected_runs=N
               _table(('Test ID', '試験名', '区分', '計画', '成功', '未成功',
                       '未解決', '実行状況', '工学評価'), state_rows, (3, 4, 5, 6)),
               '', '成功はSUCCEEDEDの採用Runが存在するCase数であり、V&VのPASSではありません。', '']
+    from .VVReportFacts import collect_report_facts, write_report_facts
+    if isinstance(report_profile, (str, Path)):
+        profile_path = Path(report_profile)
+        report_profile = json.loads(profile_path.read_text(encoding='utf-8-sig'))
+    facts = collect_report_facts(db, results, report_profile) if results is not None else None
+    if facts is not None:
+        write_report_facts(facts, destination.parent)
     by_test = {t['test_id']: t for t in tests}
     replacements = {'1': '\n'.join(sources), '5.1': '\n'.join(states)}
     chart_list = results.get('charts', []) if results is not None else []
@@ -348,6 +355,12 @@ def write_evaluation_report(db, destination, *, study_path=None, selected_runs=N
         'PLAN_HASHES': ('計画 `' + study['plan_sha256'] +
                         '` / Study設定 `' + study['config_sha256'] + '`'),
         'DB_SHA': ('`' + db_hash + '`' if db_hash else '未作成'),
+        'AIRCRAFT': ('G103A Twin II Acro（形態別情報は2.2、同等性は未認定）' if facts else '固定結果未提供'),
+        'SOFTWARE': ('計画対象OpenVSP '+study['target_openvsp_version']+'（実行バイナリは4.1参照）'),
+        'GIT': ('実行時Commitは4.1参照（未記録の場合は補完しない）' if facts else 'DB未記録'),
+        'CLASSIFICATION': (report_profile or {}).get('document_control', {}).get('classification') or '未設定（文書管理者判断）',
+        'AUTHORS': (' / '.join(str((report_profile or {}).get('document_control', {}).get(k) or '未設定')
+                         for k in ('author','reviewer','approver'))),
     }
     for key, value in meta.items():
         marker = '<!-- VV:META:' + key + ' -->'
@@ -359,7 +372,15 @@ def write_evaluation_report(db, destination, *, study_path=None, selected_runs=N
         if document.count(marker) != 1:
             raise ValueError(f'Missing/duplicate report template marker: {marker}')
         document = document.replace(marker, content, 1)
-    if '<!-- VV:CHAPTER:' in document or '<!-- VV:META:' in document:
+    for section in ('1.1','1.2','1.3','2.1','2.2','2.3','3.1','3.2',
+                    '3.3','3.4','3.5','4.1','4.2','4.3','4.4'):
+        marker = f'<!-- VV:AUTO:{section} -->'
+        if document.count(marker) != 1:
+            raise ValueError('Missing/duplicate report auto marker: '+marker)
+        content = (facts['sections'].get(section, 'DB未記録') if facts else
+                   '固定された採用Runの結果Snapshot未提供：自動入力は保留。')
+        document = document.replace(marker, content, 1)
+    if any(marker in document for marker in ('<!-- VV:CHAPTER:', '<!-- VV:META:', '<!-- VV:AUTO:')):
         raise ValueError('Unpopulated report template marker')
     destination.write_text(document, encoding='utf-8')
     if results is not None:

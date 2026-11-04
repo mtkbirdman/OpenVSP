@@ -1,3 +1,10 @@
+## 2026-11-04 v20261104.1
+
+- Report chapters 1–4: selected-Run factual autofill, provenance, requested/effective/generated reconciliation, geometry conflict diagnostics.
+- Added `VVReportFacts.py`, `tables/report_*_audit.csv`, `report_field_provenance.json`, opt-in `report_profile.json`.
+- Added standalone `tools/regenerate_vv_report.py` with optional `--report-profile`; historical DB and solver inputs remain untouched.
+- UTF-8-safe Windows regression reads; report fingerprint now covers fact extractor and template.
+
 # CHANGELOG — OpenVSP/VSPAERO V&V（統合版）
 
 本書は旧`docs/vv/`内のRelease Notes、実装・仕様Matrix、Windows実行ガイド、過去のテスト結果など**29件を破壊的に統合した開発記録**です。過去の操作コマンドは当時の構成を示す記録であり、現行CLIではありません。現行操作は`cli_guide.md`、現行実装状況は`implementation_status.md`を参照してください。

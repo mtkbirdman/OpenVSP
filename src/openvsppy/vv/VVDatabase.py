@@ -76,7 +76,9 @@ POSTPROCESS_SOURCES = (
     'src/openvsppy/vv/VVPostprocess.py', 'src/openvsppy/vv/VVNative.py',
     'src/openvsppy/vspaero/VSPAEROStab.py',
 )
-VISUALIZATION_SOURCES = ('src/openvsppy/vv/VVPlots.py', 'src/openvsppy/vv/VVReport.py')
+VISUALIZATION_SOURCES = ('src/openvsppy/vv/VVPlots.py', 'src/openvsppy/vv/VVReport.py',
+                         'src/openvsppy/vv/VVReportFacts.py',
+                         'docs/vv/templates/evaluation_report.md')
 
 
 def source_fingerprint(repo_root, paths):
