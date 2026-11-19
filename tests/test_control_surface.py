@@ -4,22 +4,26 @@ import sys
 import numpy as np
 import pytest
 
-vsp = pytest.importorskip("openvsp")
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.AnalysisVSPAERO import vsp_sweep
-from src.util import find_container_parm, results_dataframe, set_control_surface
+from openvsppy.core.util import find_container_parm, results_dataframe, set_control_surface
 
 MODEL_PATH = REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
 
 
-def test_aileron_deflection_reverses_rolling_moment():
+@pytest.mark.native_vspaero
+def test_aileron_deflection_reverses_rolling_moment(native_vspaero_api, isolated_model):
+    vsp = native_vspaero_api
+    from openvsppy.vspaero.AnalysisVSPAERO import vsp_sweep
+
+    # Native analyses create .vspgeom/.polar next to the loaded model. Do not
+    # write into the repository's evidence or reference-example directories.
+    model = isolated_model(MODEL_PATH)
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(str(MODEL_PATH))
+    vsp.ReadVSPFile(str(model))
     vsp.Update()
 
     # Keep the other controls explicitly neutral so this test isolates the

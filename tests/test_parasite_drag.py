@@ -9,8 +9,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import src.AnalysisParasiteDrag as parasite_drag_module
-from src.AnalysisParasiteDrag import (
+import openvsppy.aerodynamics.AnalysisParasiteDrag as parasite_drag_module
+from openvsppy.aerodynamics.AnalysisParasiteDrag import (
     apply_parasite_drag_to_polar,
     vsp_parasite_drag,
 )
@@ -206,8 +206,9 @@ def test_apply_parasite_drag_to_polar_reads_vspaero_sref(monkeypatch):
     assert corrected['CD'].iloc[0] == pytest.approx(0.027)
 
 
-def test_parasite_drag_g103a_integration():
-    vsp = pytest.importorskip('openvsp')
+@pytest.mark.native_openvsp
+def test_parasite_drag_g103a_integration(native_openvsp, isolated_model):
+    vsp = native_openvsp
     model_path = (
         REPO_ROOT
         / 'examples'
@@ -216,6 +217,7 @@ def test_parasite_drag_g103a_integration():
         / 'G103A.vsp3'
     )
 
+    model_path = isolated_model(model_path)
     vsp.ClearVSPModel()
     vsp.Update()
     vsp.ReadVSPFile(str(model_path))

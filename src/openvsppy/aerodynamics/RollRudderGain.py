@@ -29,7 +29,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
-from .VSPAEROStab import (
+from ..vspaero.VSPAEROStab import (
     evaluate_stab_linear_aero, 
     solver_axis_derivative_value,
     read_vspaero_stab,

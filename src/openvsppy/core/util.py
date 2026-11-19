@@ -245,48 +245,81 @@ def results_dataframe(vsp, result_id: str, result_name: str) -> pd.DataFrame:
     return pd.DataFrame(np.array(data).T, columns=columns)
 
 def set_control_surface(vsp, geom_name, deflection, cs_group_name, sub_id=0, gains=(1, 1), verbose=1):
-    current_group_names = [
-        vsp.GetVSPAEROControlGroupName(group_index)
-        for group_index in range(vsp.GetNumControlSurfaceGroups())
-    ]
-    if cs_group_name in current_group_names:
-        group_index = current_group_names.index(cs_group_name)
+    """Enable and set an existing/missing VSPAERO control group, checking the readback.
+
+    A saved group can be present but disabled (ActiveFlag=0). Setting its
+    DeflectionAngle alone then has *no aerodynamic effect*. Do not try to add
+    surfaces that already belong to the group: available-surface indices are
+    one-based and refer only to GetAvailableCSNameVec, not GetActiveCSNameVec.
+    """
+    geom_id = find_one_geom(vsp, geom_name)
+    subsurf_id = vsp.GetSubSurf(geom_id, sub_id)
+    if not subsurf_id or str(subsurf_id).upper() == "NONE":
+        raise RuntimeError(f"Missing control subsurface {geom_name}[{sub_id}]")
+
+    group_names = [vsp.GetVSPAEROControlGroupName(i)
+                   for i in range(vsp.GetNumControlSurfaceGroups())]
+    if group_names.count(cs_group_name) > 1:
+        raise RuntimeError(f"Duplicate control group: {cs_group_name}")
+    if cs_group_name in group_names:
+        group_index = group_names.index(cs_group_name)
     else:
         group_index = vsp.CreateVSPAEROControlSurfaceGroup()
         vsp.SetVSPAEROControlGroupName(cs_group_name, group_index)
+        vsp.Update()
 
-    cs_name_vec = vsp.GetAvailableCSNameVec(group_index)
-    selected = [1 + i for i, cs_name in enumerate(cs_name_vec) if geom_name in cs_name]
-    vsp.AddSelectedToCSGroup(selected, group_index)
+    def belongs_to_target(name):
+        return name.startswith(f"{geom_name}_") and name.endswith(
+            f"_{vsp.GetSubSurfName(subsurf_id)}"
+        ) if hasattr(vsp, "GetSubSurfName") else f"{geom_name}_" in name
 
-    if verbose:
-        print("\n", cs_group_name, ":", vsp.GetActiveCSNameVec(group_index))
-        print("\t", f"{'container_id':14s}", f"{'parm_name':24s}", f"{'group_name':22s}", f"{'parm_id':14s}", f"{'value':8s}")
+    active = list(vsp.GetActiveCSNameVec(group_index))
+    available = list(vsp.GetAvailableCSNameVec(group_index))
+    selected = [i + 1 for i, name in enumerate(available)
+                if belongs_to_target(name)]
+    if selected:
+        vsp.AddSelectedToCSGroup(selected, group_index)
+        vsp.Update()
+        active = list(vsp.GetActiveCSNameVec(group_index))
+    expected = [name for name in active if belongs_to_target(name)]
+    if len(expected) != len(gains):
+        raise RuntimeError(
+            f"{cs_group_name}: expected {len(gains)} active {geom_name} surfaces, "
+            f"found {expected}; available={available}. "
+            "Check saved SubSurfaces and control-group membership."
+        )
+    if len(active) != len(expected):
+        raise RuntimeError(
+            f"{cs_group_name}: group also contains unrelated control surfaces: {active}"
+        )
 
-    geom_id = vsp.FindGeomsWithName(geom_name)[0]
-    group_name = "ControlSurfaceGroup_" + str(group_index)
-    cs_group_container_id = find_vspaero_settings_container(vsp)
+    settings_id = find_vspaero_settings_container(vsp)
+    if not settings_id:
+        raise RuntimeError("VSPAERO settings container not found")
+    group_name = f"ControlSurfaceGroup_{group_index}"
+    active_id = vsp.FindParm(settings_id, "ActiveFlag", group_name)
+    deflection_id = vsp.FindParm(settings_id, "DeflectionAngle", group_name)
+    if not active_id or str(active_id).upper() == "NONE" or not deflection_id or str(deflection_id).upper() == "NONE":
+        raise RuntimeError(f"{cs_group_name}: missing ActiveFlag/DeflectionAngle")
+
+    vsp.SetParmVal(active_id, 1.0)
     for i, gain in enumerate(gains):
-        parm_name = "Surf_" + vsp.GetSubSurf(geom_id, sub_id) + "_" + str(i) + "_Gain"
-        parm_id = find_container_parm(vsp, cs_group_container_id, parm_name)
-        if parm_id != "":
-            vsp.SetParmVal(parm_id, gain)
-            if verbose:
-                print("\t", f"{cs_group_container_id:14s}", f"{parm_name:24s}", f"{group_name:22s}", f"{parm_id:14s}", f"{gain:8.3f}")
-        elif verbose:
-            print("\t", "Failed to find " + parm_name)
-
-    parm_name = "DeflectionAngle"
-    parm_id = vsp.FindParm(cs_group_container_id, parm_name, group_name)
-    vsp.SetParmVal(parm_id, deflection)
+        parm_name = f"Surf_{subsurf_id}_{i}_Gain"
+        gain_id = vsp.FindParm(settings_id, parm_name, group_name)
+        if not gain_id or str(gain_id).upper() == "NONE":
+            raise RuntimeError(f"{cs_group_name}: missing {parm_name}")
+        vsp.SetParmVal(gain_id, float(gain))
+    vsp.SetParmVal(deflection_id, float(deflection))
     vsp.Update()
-
-    if deflection == vsp.GetParmVal(parm_id):
-        if verbose:
-            print("\t", f"{cs_group_container_id:14s}", f"{parm_name:24s}", f"{group_name:22s}", f"{parm_id:14s}", f"{deflection:8.3f}")
-    else:
-        if verbose:
-            print("Failed to set deflection angle")
-        exit()
-
-    return parm_id
+    if not bool(vsp.GetParmVal(active_id)):
+        raise RuntimeError(f"{cs_group_name}: ActiveFlag did not become enabled")
+    if abs(vsp.GetParmVal(deflection_id) - float(deflection)) > 1e-8:
+        raise RuntimeError(f"{cs_group_name}: DeflectionAngle readback mismatch")
+    for i, gain in enumerate(gains):
+        gain_id = vsp.FindParm(settings_id, f"Surf_{subsurf_id}_{i}_Gain", group_name)
+        if abs(vsp.GetParmVal(gain_id) - float(gain)) > 1e-8:
+            raise RuntimeError(f"{cs_group_name}: gain {i} readback mismatch")
+    if verbose:
+        print(f"{cs_group_name}: active={expected}, gains={tuple(gains)}, "
+              f"deflection={deflection} deg")
+    return deflection_id

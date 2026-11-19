@@ -1,0 +1,2 @@
+# Solver test fixtures retain their original line endings and binary bytes.
+tests/fixtures/** -text

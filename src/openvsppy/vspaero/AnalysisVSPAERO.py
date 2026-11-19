@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import openvsp as vsp
 
-from .util import (
+from ..core.util import (
     analysis_duration_seconds,
     get_container_parm_value,
     find_one_geom,
@@ -16,7 +16,7 @@ from .util import (
     suppress_stdout,
 )
 
-from .ISAspecification import *
+from ..core.ISAspecification import *
 
 # Default reference-geometry name retained by legacy trim workflows.
 DEFAULT_REF_GEOM_NAME = 'WingGeom'
@@ -34,6 +34,7 @@ def vsp_sweep(
     fixed_wake_flag=None,
     thick_geom_set=None,
     thin_geom_set=None,
+    beta=None,
 ):
     """Run an OpenVSP VSPAERO angle-of-attack and Mach-number sweep.
 
@@ -64,6 +65,9 @@ def vsp_sweep(
         Value assigned to ``VSPAEROSweep/FixedWakeFlag``. When enabled, the
         fixed-wake setting takes precedence over ``wake_num_iter``. ``None``
         leaves the OpenVSP default unchanged.
+    beta : float or None, optional
+        Single beta angle in degrees; when given, explicitly set BetaStart/End/Npts.
+        None preserves legacy behavior.
     thick_geom_set : int or None, optional
         Thick-geometry set index used by both ``VSPAEROComputeGeometry`` and
         ``VSPAEROSweep``. ``None`` preserves the selection saved in the loaded
@@ -256,6 +260,21 @@ def vsp_sweep(
             f'NumWakeNodes={effective_wake_num_nodes}, '
             f'FixedWakeFlag={effective_fixed_wake_flag}'
         )
+
+    # A beta value must not silently fall back to the saved/default value.
+    if beta is not None:
+        beta = float(beta)
+        if not np.isfinite(beta):
+            raise ValueError('beta must be finite.')
+        required_beta = {'BetaStart', 'BetaEnd', 'BetaNpts'}
+        missing_beta = required_beta - analysis_inputs
+        if missing_beta:
+            raise RuntimeError(f'Missing VSPAEROSweep beta inputs: {sorted(missing_beta)}')
+        vsp.SetDoubleAnalysisInput(analysis_name, 'BetaStart', [beta], 0)
+        vsp.SetDoubleAnalysisInput(analysis_name, 'BetaEnd', [beta], 0)
+        vsp.SetIntAnalysisInput(analysis_name, 'BetaNpts', [1], 0)
+        if not np.isclose(float(vsp.GetDoubleAnalysisInput(analysis_name, 'BetaStart')[0]), beta, atol=1e-9):
+            raise RuntimeError('BetaStart readback mismatch.')
 
     # Freestream Parameters
     alpha_npts = [len(alpha)]

@@ -20,8 +20,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from .ISAspecification import mach_to_velocity
-from .util import (
+from ..core.ISAspecification import mach_to_velocity
+from ..core.util import (
     analysis_duration_seconds,
     find_vspaero_settings_container,
     get_container_parm_value,

@@ -29,7 +29,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from .util import (
+from ..core.util import (
     find_container_parm,
     find_geom_parm,
     find_one_geom,

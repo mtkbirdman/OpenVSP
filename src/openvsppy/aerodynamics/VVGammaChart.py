@@ -39,7 +39,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from .util import (
+from ..core.util import (
     DIHEDRAL_NAMES,
     ROOT_CHORD_NAMES,
     SPAN_NAMES,
@@ -59,7 +59,7 @@ from .util import (
     set_xsec_value,
     workdir,
 )
-from .VSPAEROStab import (
+from ..vspaero.VSPAEROStab import (
     read_vspaero_stab,
     resolve_control_columns_from_stab,
     stab_coefficient_value,
@@ -77,19 +77,7 @@ from .TrimTurnSolver import (
 # ---------------------------------------------------------------------------
 
 def _import_analysis_vspaero():
-    # Prefer the revised local module when this file is used as a generated pair.
-    # Fall back to the original module so the file remains usable after manual
-    # renaming or in an existing package layout.
-    try:
-        return importlib.import_module(".AnalysisVSPAERO_revised", package=__package__)
-    except Exception:
-        try:
-            return importlib.import_module("AnalysisVSPAERO_revised")
-        except Exception:
-            try:
-                return importlib.import_module(".AnalysisVSPAERO", package=__package__)
-            except Exception:
-                return importlib.import_module("AnalysisVSPAERO")
+    return importlib.import_module('openvsppy.vspaero.AnalysisVSPAERO')
 
 def _vprint(verbose: int | bool, level: int, message: str) -> None:
     if verbose and int(verbose) >= level:
@@ -680,10 +668,7 @@ def apply_wing_deflection_as_dihedral(
 # ---------------------------------------------------------------------------
 
 def _import_roll_rudder_gain():
-    try:
-        return importlib.import_module(".RollRudderGain", package=__package__)
-    except Exception:
-        return importlib.import_module("RollRudderGain")
+    return importlib.import_module('openvsppy.aerodynamics.RollRudderGain')
 
 def calculate_stab_basic_indices(
     stab_path: str | os.PathLike,

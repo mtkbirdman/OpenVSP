@@ -4,22 +4,23 @@ import sys
 import numpy as np
 import pytest
 
-vsp = pytest.importorskip("openvsp")
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.AnalysisVSPAERO import make_CDo_correction, vsp_sweep_wig
-from src.util import get_container_parm_value
+from openvsppy.core.util import get_container_parm_value
 
 MODEL_PATH = REPO_ROOT / "examples" / "models" / "SampleGlider" / "SampleGlider.vsp3"
 
 
-def test_ground_effect_reduces_induced_drag_and_preserves_output_contract():
+@pytest.mark.native_vspaero
+def test_ground_effect_reduces_induced_drag_and_preserves_output_contract(native_vspaero_api, isolated_model):
+    vsp = native_vspaero_api
+    from openvsppy.vspaero.AnalysisVSPAERO import make_CDo_correction, vsp_sweep_wig
+    model = isolated_model(MODEL_PATH)
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(str(MODEL_PATH))
+    vsp.ReadVSPFile(str(model))
     vsp.Update()
 
     settings_id = vsp.FindContainer("VSPAEROSettings", 0)

@@ -4,22 +4,23 @@ import sys
 import numpy as np
 import pytest
 
-vsp = pytest.importorskip("openvsp")
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.AnalysisVSPAERO import vsp_sweep
-from src.util import results_dataframe
+from openvsppy.core.util import results_dataframe
 
 MODEL_PATH = REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
 
 
-def test_sweep_returns_requested_polar_with_physical_lift_trend():
+@pytest.mark.native_vspaero
+def test_sweep_returns_requested_polar_with_physical_lift_trend(native_vspaero_api, isolated_model):
+    vsp = native_vspaero_api
+    from openvsppy.vspaero.AnalysisVSPAERO import vsp_sweep
+    model = isolated_model(MODEL_PATH)
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(str(MODEL_PATH))
+    vsp.ReadVSPFile(str(model))
     vsp.Update()
 
     alpha = [-2.0, 2.0, 6.0]
@@ -68,10 +69,14 @@ def test_sweep_returns_requested_polar_with_physical_lift_trend():
     assert np.all(polar["CDi"].to_numpy() >= -1e-8)
 
 
-def test_sweep_applies_explicit_thick_thin_set_override():
+@pytest.mark.native_vspaero
+def test_sweep_applies_explicit_thick_thin_set_override(native_vspaero_api, isolated_model):
+    vsp = native_vspaero_api
+    from openvsppy.vspaero.AnalysisVSPAERO import vsp_sweep
+    model = isolated_model(MODEL_PATH)
     vsp.ClearVSPModel()
     vsp.Update()
-    vsp.ReadVSPFile(str(MODEL_PATH))
+    vsp.ReadVSPFile(str(model))
     vsp.Update()
 
     thin_geom_set = int(vsp.GetSetIndex("ThinGeom"))

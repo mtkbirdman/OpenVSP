@@ -12,7 +12,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src import OpenVSPViewCapture as capture
+from openvsppy.visualization import OpenVSPViewCapture as capture
+
+@pytest.fixture(autouse=True)
+def skip_animation_without_ffmpeg(request):
+    if request.node.get_closest_marker("requires_ffmpeg"):
+        pytest.importorskip("imageio_ffmpeg", reason="Install with python -m pip install imageio-ffmpeg")
 
 
 def test_view_spec_normalizes_name_and_rotation():
@@ -98,6 +103,7 @@ def test_capture_uses_shared_batch_path_and_render_mode(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("extension", [".gif", ".mp4"])
+@pytest.mark.requires_ffmpeg
 def test_animation_preserves_order_and_encodes_requested_format(
     tmp_path, monkeypatch, extension
 ):
@@ -124,6 +130,7 @@ def test_animation_preserves_order_and_encodes_requested_format(
     assert calls[0][2]["render_mode"] == "shade"
 
 
+@pytest.mark.requires_ffmpeg
 def test_animation_reuses_matching_frames(tmp_path, monkeypatch):
     models = _make_models(tmp_path)
     frames_dir = tmp_path / "frames"
@@ -151,6 +158,7 @@ def test_animation_reuses_matching_frames(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+@pytest.mark.requires_ffmpeg
 def test_animation_rejects_frames_from_different_capture_settings(
     tmp_path, monkeypatch
 ):
@@ -202,6 +210,8 @@ def test_worker_hides_cli_arguments_from_openvsp_3504_facade(tmp_path, monkeypat
                 "view_grid": [[{"view": "top", "rotate_deg": 0}]],
                 "render_mode": "preserve",
                 "fit": True,
+                "fit_to_content": False,
+                "content_padding_px": 2,
                 "transparent_background": False,
                 "autocrop": False,
                 "show_axis": False,
@@ -214,6 +224,8 @@ def test_worker_hides_cli_arguments_from_openvsp_3504_facade(tmp_path, monkeypat
     calls = []
     fake_vsp = types.SimpleNamespace(
         CAM_TOP=0,
+        GetVehicleID=lambda: 'FAKE-VEHICLE',
+        SetParmVal=lambda *_: None,
         IsGUIBuild=lambda: True,
         InitGUI=lambda: calls.append("init"),
         StartGUI=lambda: calls.append("start"),
@@ -254,14 +266,12 @@ def test_worker_hides_cli_arguments_from_openvsp_3504_facade(tmp_path, monkeypat
     assert output_path.is_file()
 
 
+@pytest.mark.gui
 @pytest.mark.slow
-@pytest.mark.skipif(
-    os.environ.get("RUN_OPENVSP_GUI_TESTS") != "1",
-    reason="Set RUN_OPENVSP_GUI_TESTS=1 to run the interactive OpenVSP GUI test.",
-)
-def test_capture_g103a_with_openvsp_gui(tmp_path):
+def test_capture_g103a_with_openvsp_gui(isolated_model, native_workspace):
     model_path = REPO_ROOT / "examples" / "models" / "G103A" / "G103A.vsp3"
-    output_path = tmp_path / "G103A_four_views.png"
+    model_path = isolated_model(model_path)
+    output_path = native_workspace / "G103A_four_views.png"
 
     result = capture.capture_vsp3_views(
         model_path,

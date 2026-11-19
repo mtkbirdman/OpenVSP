@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openvsppy"
+version = "2026.11.4.1"
+description = "OpenVSP and VSPAERO Python analysis and visualization tools"
+requires-python = ">=3.10"
+# OpenVSP native Python API comes from the separate OpenVSP installation.
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["openvsppy*"]
+
+[tool.pytest.ini_options]
+# Keep the default run deterministic without OpenVSP, a GUI, or native solvers.
+# Explicit -m selection replaces this default marker expression.
+addopts = ["--strict-markers", "-m", "not native_openvsp and not native_vspaero and not native_solver and not gui"]
+markers = [
+  "native_openvsp: executes the OpenVSP native Python API but not the VSPAERO solver",
+  "native_vspaero: executes VSPAERO via the native OpenVSP Python API",
+  "native_solver: invokes the standalone native VSPAERO executable",
+  "gui: requires a supported GUI/OpenGL display environment",
+  "requires_ffmpeg: requires FFmpeg availability",
+  "slow: comparatively long-running integration tests",
+]

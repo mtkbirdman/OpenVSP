@@ -47,7 +47,7 @@ from typing import Mapping
 import numpy as np
 from scipy.optimize import least_squares
 
-from .VSPAEROStab import (
+from ..vspaero.VSPAEROStab import (
     evaluate_stab_linear_aero,
     VSPAEROStab,
     read_vspaero_stab,
