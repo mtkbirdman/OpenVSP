@@ -1,8 +1,8 @@
 # OpenVSP / VSPAERO Python解析ツール
 
-OpenVSP / VSPAEROをPythonから利用し、航空機の空力解析・飛行力学解析・可視化と、VSPAEROのVerification & Validation（V&V）を支援するリポジトリです。解析コード、Notebook、再現可能なV&V定義、試験用データ、技術文書を収録しています。
+OpenVSP / VSPAEROをPythonから利用し、航空機の空力解析・飛行力学解析・可視化を行うリポジトリです。解析コード、Notebook、サンプルモデル、テストを収録しています。
 
-> **対象と制約**：このリポジトリはOpenVSP本体の配布物ではありません。OpenVSP本体、互換性のあるPython API、VSPAERO実行ファイルは別途用意してください。V&V基盤を実装していることは、VSPAEROの予測精度や工学的使用可能性が認定されたことを意味しません。
+> **対象と制約**：このリポジトリはOpenVSP本体の配布物ではありません。OpenVSP本体、互換性のあるPython API、VSPAERO実行ファイルは必要な機能に応じて別途用意してください。解析結果の妥当性は個別に検証してください。
 
 ## 1. 主な機能
 
@@ -12,15 +12,14 @@ OpenVSP / VSPAEROをPythonから利用し、航空機の空力解析・飛行力
 | 空力・飛行力学 | 寄生抗力補正、定常旋回トリム、ラダー応答、横風突風の6自由度応答 | `src/openvsppy/aerodynamics/` |
 | メッシュ | 3次元エッジ長に基づくVSPAEROメッシュ分割の調整 | `src/openvsppy/vspaero/VSPAEROMesh.py` |
 | 可視化 | `.vsp3`の複数方向撮影、VSPAERO ADBの圧力分布4面図、GIF・MP4アニメーション | `src/openvsppy/visualization/` |
-| V&V | 試験定義、実行管理、SQLite記録、結果比較・評価、図表・報告書生成 | `src/openvsppy/vv/` |
 
-解析モデル・Notebook・設定例は`examples/`、V&Vの仕様とテンプレートは`docs/vv/`、実際のStudy設定と実行時の参照データは`vv_study/`で管理します。回帰テストに必要な固定データは`tests/fixtures/`に配置します。
+解析モデル・Notebook・設定例は`examples/`、回帰テストに必要な固定データは`tests/fixtures/`で管理します。
 
 ## 2. 動作環境
 
 - **Python**：`pyproject.toml`の指定は3.10以上。ただし、OpenVSP Python APIを使用する場合は、**インストールされたOpenVSP 3.50.5 APIのビルド対象Pythonと互換性のある環境**が必要です。Pythonのバージョンだけでは共有ライブラリの動作まで保証されません。
-- **OpenVSP / VSPAERO**：V&Vのネイティブ試験は3.50.5を対象としています。オフラインテストの一部はOpenVSPなしで実行できます。
-- **主なPythonライブラリ**：NumPy、pandas、SciPy、Matplotlib。撮影・動画関連機能にはPillow、imageio-ffmpeg、NotebookにはJupyterが必要です。V&V報告書の追加依存は`requirements-vv-report.txt`を参照してください。
+- **OpenVSP / VSPAERO**：ネイティブテストは3.50.5を対象としています。オフラインテストの一部はOpenVSPなしで実行できます。
+- **主なPythonライブラリ**：NumPy、pandas、SciPy、Matplotlib。撮影・動画関連機能にはPillow、imageio-ffmpeg、NotebookにはJupyterが必要です。
 - **実行環境**：以下はWindows PowerShellの例です。パスとConda環境名は利用環境に合わせてください。
 
 公式情報：[OpenVSP](https://openvsp.org/)／[Python APIリファレンス](https://openvsp.org/pyapi_docs/latest/)／[ドキュメント](https://openvsp.org/docs.shtml)
@@ -34,7 +33,6 @@ Set-Location $repo
 conda activate vsppytools.3.50.5
 $env:PYTHONPATH = (Resolve-Path '.\src').Path
 
-python -m openvsppy.vv --help
 python -m pytest -q -rs
 ```
 
@@ -58,28 +56,23 @@ python -c "import openvsp as vsp; print(vsp.GetVSPVersion())"
 OpenVSP/
 ├── README.md
 ├── pyproject.toml              # パッケージ・pytest設定
-├── requirements-vv-report.txt
 ├── src/openvsppy/
 │   ├── core/                   # 共通ユーティリティ・大気モデル
 │   ├── geometry/               # 形状関数
 │   ├── vspaero/                # 解析API・メッシュ・安定微係数
 │   ├── aerodynamics/           # 飛行力学・抗力補正・設計計算
-│   ├── visualization/          # OpenVSPの撮影・画像処理
-│   └── vv/                     # V&V CLI・DB・ワーカー・報告
+│   └── visualization/          # OpenVSPの撮影・画像処理
 ├── examples/
 │   ├── models/                 # 解析モデルと付属データ
-│   ├── notebooks/              # 解析・可視化の実行例
-│   └── vv/                     # V&V設定・参照データの使用例
+│   └── notebooks/              # 解析・可視化の実行例
 ├── tests/                      # オフライン・ネイティブ・GUIテスト
 │   └── fixtures/               # テストに必要な固定データ
 ├── tools/
 │   └── run_native_pytest.py    # ネイティブテストの隔離実行
-├── docs/vv/                    # V&V計画・仕様・運用・履歴
-│   └── templates/              # 報告書・試験記録・設定・調査表のひな形
-└── vv_study/                   # 現行Study設定・試験カタログ・実行時データ
+└── tree.ipynb                  # ディレクトリ構成の確認用Notebook
 ```
 
-`.gitignore`の対象となるSQLite DB、解析Run、生成レポート、Notebook結果などは、通常のGitコミットには含めません。回帰テストに必要な選別済みfixtureのみを収録し、一時的な比較調査の原本は別アーカイブに保管します。
+`.gitignore`の対象となる解析結果、Notebook生成物、旧VV実行データなどは通常のGitコミットに含めません。必要なテストfixtureのみを収録しています。
 
 ## 4. Python APIとNotebookの使用例
 
@@ -145,39 +138,7 @@ capture_adb_cp_views(
 
 ソース参照：OpenVSP 3.50.5 `src/vsp_aero/Solver/VSP_Solver.C` の`WriteOutAerothermalDatabaseHeader/Geometry/Solution`と、`src/vsp_aero/Viewer/glviewer.C`の`LoadMeshData`、`UpdateMeshData`、`LoadExistingSolutionData`、`DrawShadedSolutionPerTri`、`percent_to_rgb`。
 
-## 5. VSPAERO V&Vの実行
-
-V&Vには、計画書、試験カタログ、レビュー済み入力設定、SQLite、解析結果の証拠ファイルを利用します。解析条件が未設定のCaseや、比較に必要な実験データがないCaseを推測で補完しません。
-
-### CLIの確認と新規データベース
-
-```powershell
-# リポジトリルートにおいて、上記の環境設定後に実行
-$db = 'vv_study\01_database\vv.sqlite'
-python -m openvsppy.vv --help
-python -m openvsppy.vv --db $db init
-python -m openvsppy.vv --db $db plan
-```
-
-`init`は新規DBの作成に使います。旧版SQLite DBの移行機能はありません。旧`vv`モジュールのインポートパスにも互換性はありません。**既存DBを直接上書きしたり、試験Runの証拠ファイルを削除したりしないでください。**
-
-### ネイティブ解析と一括実行
-
-OpenVSP 3.50.5のAPIとVSPAERO実行ファイルが使用可能な環境では、個別Caseの確認後に一括処理を実施できます。以下はコマンド例です。
-
-```powershell
-$solver = 'C:\OpenVSP-3.50.5\vspaero.exe'  # 実際のパスに変更
-$pythonExe = (Get-Command python).Source
-$config = 'vv_study\execution.reviewed.json'
-python -m openvsppy.vv --db $db check --case GEO-03-G3 --binary $solver
-python -m openvsppy.vv --db $db execute-all --config $config --binary $solver --python $pythonExe --timeout 3600 --ncpu 4 --verbose
-```
-
-個別のCaseは事前にレビュー済み条件で`prepare`・登録する必要があります。`--ncpu`はVSPAEROソルバーのOpenMPスレッド数であり、同時Case数ではありません。詳細な手順、解析モード別タイムアウト、Runの再利用条件、結果確認は[CLI運用ガイド](docs/vv/cli_guide.md)を参照してください。
-
-**`execute-all`による報告書生成やRunの`SUCCEEDED`登録は、V&Vの合格や工学的使用認定を意味しません。** 実機での検証状況・未確認事項は[実装状況](docs/vv/implementation_status.md)と[変更履歴](docs/vv/CHANGELOG.md)に記載しています。
-
-## 6. テスト
+## 5. テスト
 
 通常の回帰テストでは、OpenVSP API、VSPAERO、GUIを使用するテストは**選択対象外（DESELECTED）**です。解析環境なしで実行できる部分と、ネイティブ実行を伴う試験結果を区別してください。
 
@@ -199,25 +160,7 @@ python tools/run_native_pytest.py --marker gui --timeout 300
 
 `tools/run_native_pytest.py`はネイティブ試験を別プロセスで隔離実行し、タイムアウト時に子プロセスも終了させます。結果はGit管理外の`native_test_results/`に保存します。自動試験で検査できた範囲と、実機による解析性能の検証範囲を混同しないでください。
 
-## 7. ドキュメント
-
-| 文書 | 用途 |
-|---|---|
-| [V&V計画書](docs/vv/plan.md) | 試験目的・範囲・技術的判定方針。文書版数は本文とStudy設定で管理 |
-| [DB詳細仕様書](docs/vv/database_spec.md) | データモデル・状態遷移・証拠管理 |
-| [評価報告書テンプレート](docs/vv/templates/evaluation_report.md) | 13章構成のレビュー草稿 |
-| [試験記録テンプレート](docs/vv/templates/test_record.md) | Test ID単位の記録 |
-| [DB・報告書フィールド対応表](docs/vv/db_report_field_mapping.md) | DBと報告書の追跡 |
-| [方法論と参考文献](docs/vv/methods_and_references.md) | 採用した手法と一次資料の対応 |
-| [CLI運用ガイド](docs/vv/cli_guide.md) | 最新の実行手順 |
-| [実装状況](docs/vv/implementation_status.md) | 25試験の実装範囲と未検証項目 |
-| [変更履歴](docs/vv/CHANGELOG.md) | 過去の開発記録・版別の変更点 |
-| [設定・報告書テンプレート](docs/vv/templates/README.md) | 新規Study・Case・参照メタデータ、報告書のひな形 |
-| [V&V設定の使用例](examples/vv/) | 具体的なG103A解析条件・参照値の例（正式承認とは別） |
-
-計画書およびテンプレートの**ファイル名は固定**します。計画書の文書版数、Studyの`plan.version`・`plan.sha256`、特定Gitコミットの組合せで、実際に使用した計画の内容を識別できます。計画書本文を改訂した場合は対応するSHA-256を更新し、過去のRunに使用した計画の特定情報を保持してください。
-
-## 8. 注意事項・ライセンス
+## 6. 注意事項・ライセンス
 
 - 解析値の妥当性は、形状・解析モード・座標系・基準量・重心・Control Surface Group、メッシュ・Wake条件、参照データおよび数値収束に依存します。
 - `.stab`による線形モデルの外挿や、VSPAERO内蔵の寄生抗力と外部CD0補正の組合せには適用範囲上の制約があります。

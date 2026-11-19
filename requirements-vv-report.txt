@@ -1,2 +1,0 @@
-# Offline reviewer figures. OpenVSP 3.50.5 is installed separately.
-matplotlib>=3.7

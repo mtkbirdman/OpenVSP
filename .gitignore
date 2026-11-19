@@ -171,8 +171,6 @@ cython_debug/
 *.slc
 *.lod
 *.history
-# Preserve the small curated parser fixture despite the generic solver-output ignore.
-!/tests/fixtures/vspaero/api_vs_direct/direct_success_outputs/model_effective.history
 *.fem
 *.vspgeom
 *.vkey
@@ -200,12 +198,11 @@ test.ipynb
 G103A/G103A_trimmed_polar.xlsx
 tmp
 
-vv_0*
 wake_*0*
 coding.md
 desktop.ini
 
-# V&V run/measurement data (do not commit proprietary inputs or results)
+# Historical VV run data: remain ignored to avoid accidentally committing private local data
 vv_study/01_database/*.sqlite
 vv_study/01_database/*.sqlite-*
 vv_study/03_run_raw/
@@ -214,7 +211,7 @@ vv_study/04_reports/
 vv_study/study.private.json
 vv_study/case.json
 
-# Reproducible V&V definitions stay tracked; runs and intermediate outputs do not.
+# Historical VV intermediate files, if they remain in a local working tree
 /vv_study/generated/
 /vv_study/geometry_generated/
 /vv_study/01_database/*.db

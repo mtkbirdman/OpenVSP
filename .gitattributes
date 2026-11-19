@@ -1,5 +1,2 @@
-# A Study identifies its approved plan by raw-byte SHA-256; checkouts must not rewrite line endings.
-docs/vv/plan.md text eol=lf
-
-# Solver/reference evidence is byte-for-byte immutable (including native CRLF and binary formats).
+# Solver test fixtures retain their original line endings and binary bytes.
 tests/fixtures/** -text

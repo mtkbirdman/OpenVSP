@@ -1,1 +1,0 @@
-"""OpenVSP Python tools: vv."""

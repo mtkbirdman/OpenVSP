@@ -1,1 +1,1 @@
-"""OpenVSP / VSPAERO analysis and verification tools."""
+"""OpenVSP / VSPAERO analysis, flight dynamics and visualization tools."""

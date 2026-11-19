@@ -1,8 +1,6 @@
-"""Standalone Linux/Windows VSPAERO diagnostic; not the production API workflow.
+"""Standalone VSPAERO solver smoke test for Linux and Windows.
 
-The input is an isolated, single-Wake, zero-control-group G103A diagnostic
-prepared from a prior successful native Linux run. It is NOT an accepted VV
-case or a substitute for the reviewed 20-Wake GEO-03-G3 run.
+The fixture exercises native execution independently of the Python API.
 """
 import os
 import shutil
@@ -24,8 +22,7 @@ def test_native_solver_smoke(vspaero_binary, native_workspace):
     env = os.environ.copy()
     env['OMP_NUM_THREADS'] = '1'
     with log.open('wb') as output:
-        # Same syntax as the validated native standalone smoke. This does not
-        # alter the Python API execution path of any OpenVSP/VV production code.
+        # Run the standalone solver in the isolated workspace.
         try:
             run = subprocess.run(
                 [str(vspaero_binary), '-omp', '1', 'smoke'],
@@ -39,7 +36,4 @@ def test_native_solver_smoke(vspaero_binary, native_workspace):
     for ext in ('.polar', '.history', '.lod', '.adb'):
         result = native_workspace / f'smoke{ext}'
         assert result.is_file() and result.stat().st_size > 0, f'Missing native output: {result}'
-    from openvsppy.vv.VVPostprocess import read_history
-    # Keep the detailed .history parser exercised on actual native output.
-    parsed = read_history(native_workspace / 'smoke.history')
-    assert parsed
+    assert (native_workspace / 'smoke.history').read_text(errors='replace').strip()
