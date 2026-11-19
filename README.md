@@ -11,7 +11,7 @@ OpenVSP / VSPAEROをPythonから利用し、航空機の空力解析・飛行力
 | VSPAERO解析 | 迎角・Mach数・Reynolds数のSweep、縦トリム、地面効果、安定微係数 | `src/openvsppy/vspaero/` |
 | 空力・飛行力学 | 寄生抗力補正、定常旋回トリム、ラダー応答、横風突風の6自由度応答 | `src/openvsppy/aerodynamics/` |
 | メッシュ | 3次元エッジ長に基づくVSPAEROメッシュ分割の調整 | `src/openvsppy/vspaero/VSPAEROMesh.py` |
-| 可視化 | `.vsp3`の複数方向撮影、PNG合成、GIF・MP4アニメーション | `src/openvsppy/visualization/` |
+| 可視化 | `.vsp3`の複数方向撮影、VSPAERO ADBの圧力分布4面図、GIF・MP4アニメーション | `src/openvsppy/visualization/` |
 | V&V | 試験定義、実行管理、SQLite記録、結果比較・評価、図表・報告書生成 | `src/openvsppy/vv/` |
 
 解析モデル・Notebook・設定例は`examples/`、V&Vの仕様とテンプレートは`docs/vv/`、実際のStudy設定と実行時の参照データは`vv_study/`で管理します。回帰テストに必要な固定データは`tests/fixtures/`に配置します。
@@ -112,6 +112,38 @@ print(report[["geom_name", "u_target_ratio", "w_target_ratio", "cap_target_ratio
 | `view_capture/` | 多方向撮影・アニメーション |
 
 これらは`examples/notebooks/`内にあります。一部のNotebookは実行結果や`.stab`など、ZIPに含まれない追加ファイルを必要とします。
+
+### VSPAERO圧力分布の4面図（ADBを直接読み込み）
+
+`src/openvsppy/visualization/VSPAEROCpViewCapture.py` は、**OpenVSP 3.50.5で生成した定常Version 3の`.adb`**をPythonで読み込み、NumPyの正射影・Z-bufferとMatplotlibのAggバックエンドを使って圧力分布をPNGにします。OpenVSP GUI、`vspaero.exe`、Viewer、C++コンパイル、PyVista/VTKは不要です。
+
+同じ場所に`Aircraft.adb.cases`が必要です。解析結果を再実行せず、ケース番号（**1始まり**）を選択できます。
+
+```python
+from openvsppy.visualization.VSPAEROCpViewCapture import (
+    capture_adb_cp_views,
+    list_adb_cases,
+)
+
+for item in list_adb_cases('Aircraft.adb'):
+    print(item.index, item.mach, item.alpha_deg, item.beta_deg, item.comment)
+
+capture_adb_cp_views(
+    'Aircraft.adb',
+    'Aircraft_Cp.png',
+    case=1,
+    size=(1600, 1200),
+    cp_limits=(-1.5, 1.0),  # None: 表示対象の最小値・最大値から自動設定
+    align_orthographic_views=True,
+    reflect_symmetry='auto',
+)
+```
+
+既定配置は以前の形状4面図と同じく、上面（機首下向き）／左側面（機首下向き）／正面／左鳥瞰です。直交投影図は共通の画素縮尺とモデル中心を使用し、鳥瞰図はセルに独立にフィットします。全ビューに共通のCpカラーバーを表示します。撮影方向・表示範囲・背景透過などは関数引数で変更できます。Notebook例は`examples/notebooks/view_capture/example_adb_cp_capture.ipynb`です。
+
+**制約**：初期対応は、3.50.5のWriter/Viewerに整合するVersion 3、定常VLM/Panel、**ロータ・ノズルレコードのない**ADBです。非定常、古いVersion 3レイアウト、混在Thin/Thickの面単位の圧力意味の識別、舵面のViewer上の追加変形、Wake描画には対応しません。VLMは`Delta Cp`、Panelは`Cp`と表示しますが、混在モデルの意味は別途確認が必要です。対称モデルの反転はY=0の半機体を検出した場合に限定します。ビューの色はViewerのPer-Triangleカラーマップに基づきますが、Viewerの照明やアンチエイリアスを完全に再現するものではありません。
+
+ソース参照：OpenVSP 3.50.5 `src/vsp_aero/Solver/VSP_Solver.C` の`WriteOutAerothermalDatabaseHeader/Geometry/Solution`と、`src/vsp_aero/Viewer/glviewer.C`の`LoadMeshData`、`UpdateMeshData`、`LoadExistingSolutionData`、`DrawShadedSolutionPerTri`、`percent_to_rgb`。
 
 ## 5. VSPAERO V&Vの実行
 
